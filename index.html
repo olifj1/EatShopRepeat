@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=1.0.0">
+  <link rel="stylesheet" href="./style.css?v=1.0.2">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -34,7 +34,10 @@
             <h2 id="week-title">This week</h2>
             <p class="screen-subtitle" id="week-range"></p>
           </div>
-          <div class="week-nav" aria-label="Change week">
+          <div class="week-nav" aria-label="Week controls">
+            <button class="mini-icon-button settings-button" id="week-settings" type="button" aria-label="Week settings" title="Week settings">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+            </button>
             <button class="mini-icon-button" id="prev-week" type="button" aria-label="Previous week">‹</button>
             <button class="mini-icon-button" id="next-week" type="button" aria-label="Next week">›</button>
           </div>
@@ -231,6 +234,34 @@
     </section>
   </div>
 
+
+  <div class="overlay" id="settings-overlay" hidden>
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">PLAN</p>
+          <h3 id="settings-title">Week settings</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="settings-overlay" aria-label="Close">×</button>
+      </div>
+      <form id="settings-form">
+        <label class="field-label" for="week-start-day">Week starts on</label>
+        <select class="text-input select-input" id="week-start-day">
+          <option value="1">Monday</option>
+          <option value="2">Tuesday</option>
+          <option value="3">Wednesday</option>
+          <option value="4">Thursday</option>
+          <option value="5">Friday</option>
+          <option value="6">Saturday</option>
+          <option value="0">Sunday</option>
+        </select>
+        <p class="settings-note">This sets the seven-day planning and shopping week. Existing planned meals stay attached to their calendar dates.</p>
+        <button class="primary-button full-width" type="submit">Save week settings</button>
+      </form>
+    </section>
+  </div>
+
   <div class="overlay install-overlay" id="install-overlay" hidden>
     <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="install-title">
       <div class="sheet-handle" aria-hidden="true"></div>
@@ -250,6 +281,6 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.0"></script>
+  <script src="./app.js?v=1.0.2"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.0.2";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -13,8 +13,10 @@ const CATEGORIES = [
   "Household",
   "Other"
 ];
-const UNITS = ["", "pack", "packs", "g", "kg", "ml", "l", "pint", "pints", "tin", "tins", "jar", "jars", "tub", "tubs"];
+const UNITS = ["", "pack", "packs", "g", "kg", "ml", "l", "pint", "pints", "tbsp", "tsp", "cm", "clove", "cloves", "tin", "tins", "jar", "jars", "tub", "tubs"];
 const NO_MEAL = "__none__";
+const DEFAULT_WEEK_START_DAY = 5; // Friday
+const BUNDLED_CONTENT_VERSION = 1;
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => Array.from(document.querySelectorAll(selector));
@@ -35,10 +37,10 @@ function fromDateKey(key) {
   return new Date(y, m - 1, d, 12, 0, 0, 0);
 }
 
-function startOfWeek(input = new Date()) {
+function startOfWeek(input = new Date(), startDay = DEFAULT_WEEK_START_DAY) {
   const date = new Date(input.getFullYear(), input.getMonth(), input.getDate(), 12);
-  const day = date.getDay() || 7;
-  date.setDate(date.getDate() - day + 1);
+  const offset = (date.getDay() - Number(startDay) + 7) % 7;
+  date.setDate(date.getDate() - offset);
   return date;
 }
 
@@ -46,6 +48,12 @@ function addDays(input, days) {
   const date = new Date(input);
   date.setDate(date.getDate() + days);
   return date;
+}
+
+function dateDistance(from, to) {
+  const a = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+  const b = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+  return Math.round((b - a) / 86400000);
 }
 
 function formatDay(date) {
@@ -60,17 +68,140 @@ function formatDateShort(date) {
   return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(date);
 }
 
-function formatWeekRange(monday) {
-  const sunday = addDays(monday, 6);
-  const sameMonth = monday.getMonth() === sunday.getMonth();
-  const sameYear = monday.getFullYear() === sunday.getFullYear();
+function formatWeekRange(start) {
+  const end = addDays(start, 6);
+  const sameMonth = start.getMonth() === end.getMonth();
+  const sameYear = start.getFullYear() === end.getFullYear();
   if (sameMonth) {
-    return `${monday.getDate()}–${sunday.getDate()} ${new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(monday)}`;
+    return `${start.getDate()}–${end.getDate()} ${new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(start)}`;
   }
   if (sameYear) {
-    return `${formatDateShort(monday)} – ${formatDateShort(sunday)} ${sunday.getFullYear()}`;
+    return `${formatDateShort(start)} – ${formatDateShort(end)} ${end.getFullYear()}`;
   }
-  return `${formatDateShort(monday)} ${monday.getFullYear()} – ${formatDateShort(sunday)} ${sunday.getFullYear()}`;
+  return `${formatDateShort(start)} ${start.getFullYear()} – ${formatDateShort(end)} ${end.getFullYear()}`;
+}
+
+function emptyWeek(startKey) {
+  const now = new Date().toISOString();
+  return {
+    startDate: startKey,
+    meals: Array(7).fill(null),
+    lunches: Array(7).fill(null),
+    regularItemIds: [],
+    extras: [],
+    checkedItemIds: [],
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function normaliseWeek(week, key) {
+  const clean = week && typeof week === "object" ? week : {};
+  clean.startDate = clean.startDate || clean.monday || key;
+  clean.meals = Array.isArray(clean.meals) ? [...clean.meals, ...Array(7).fill(null)].slice(0, 7) : Array(7).fill(null);
+  clean.lunches = Array.isArray(clean.lunches) ? [...clean.lunches, ...Array(7).fill(null)].slice(0, 7) : Array(7).fill(null);
+  clean.regularItemIds = Array.isArray(clean.regularItemIds) ? clean.regularItemIds : [];
+  clean.extras = Array.isArray(clean.extras) ? clean.extras : [];
+  clean.checkedItemIds = Array.isArray(clean.checkedItemIds) ? clean.checkedItemIds : [];
+  clean.createdAt = clean.createdAt || new Date().toISOString();
+  clean.updatedAt = clean.updatedAt || clean.createdAt;
+  delete clean.monday;
+  return clean;
+}
+
+function rebaseWeekMap(weeks, oldStartDay, newStartDay) {
+  const rebased = {};
+  const ensureTarget = start => {
+    const key = localDateKey(start);
+    if (!rebased[key]) rebased[key] = emptyWeek(key);
+    return rebased[key];
+  };
+
+  Object.entries(weeks || {}).forEach(([key, rawWeek]) => {
+    const week = normaliseWeek(clone(rawWeek), key);
+    const sourceStart = fromDateKey(week.startDate || key);
+
+    ["meals", "lunches"].forEach(slotName => {
+      week[slotName].forEach((mealId, index) => {
+        if (mealId === null || mealId === undefined) return;
+        const date = addDays(sourceStart, index);
+        const targetStart = startOfWeek(date, newStartDay);
+        const target = ensureTarget(targetStart);
+        const targetIndex = dateDistance(targetStart, date);
+        if (targetIndex >= 0 && targetIndex < 7) target[slotName][targetIndex] = mealId;
+      });
+    });
+
+    const shoppingStart = startOfWeek(sourceStart, newStartDay);
+    const shoppingTarget = ensureTarget(shoppingStart);
+    shoppingTarget.regularItemIds = Array.from(new Set([...shoppingTarget.regularItemIds, ...week.regularItemIds]));
+    shoppingTarget.checkedItemIds = Array.from(new Set([...shoppingTarget.checkedItemIds, ...week.checkedItemIds]));
+    const existingExtraIds = new Set(shoppingTarget.extras.map(extra => extra.id));
+    week.extras.forEach(extra => {
+      if (!existingExtraIds.has(extra.id)) {
+        shoppingTarget.extras.push(extra);
+        existingExtraIds.add(extra.id);
+      }
+    });
+    shoppingTarget.updatedAt = week.updatedAt || shoppingTarget.updatedAt;
+  });
+
+  return rebased;
+}
+
+function applyBundledContent(target) {
+  const currentVersion = Number(target.bundledContentVersion) || 0;
+  if (currentVersion >= BUNDLED_CONTENT_VERSION) return target;
+
+  const now = new Date().toISOString();
+  const bundledItems = [
+    ["item_olive_oil", "Olive oil", "Cupboard"],
+    ["item_onion", "Onion", "Fruit & veg"],
+    ["item_carrots", "Carrots", "Fruit & veg"],
+    ["item_root_ginger", "Fresh root ginger", "Fruit & veg"],
+    ["item_garlic", "Garlic", "Fruit & veg"],
+    ["item_chilli_flakes", "Dried red chilli flakes", "Cupboard"],
+    ["item_sweet_potatoes", "Sweet potatoes", "Fruit & veg"],
+    ["item_vegetable_stock", "Vegetable stock", "Cupboard"],
+    ["item_salt", "Salt", "Cupboard"],
+    ["item_black_pepper", "Black pepper", "Cupboard"]
+  ];
+
+  const itemIds = {};
+  bundledItems.forEach(([preferredId, name, category]) => {
+    let item = target.items.find(entry => entry.id === preferredId) || target.items.find(entry => keyName(entry.name) === keyName(name));
+    if (!item) {
+      item = { id: preferredId, name, category, regular: false, createdAt: now, updatedAt: now };
+      target.items.push(item);
+    }
+    itemIds[preferredId] = item.id;
+  });
+
+  if (!target.meals.some(meal => meal.id === "meal_sweet_potato_soup")) {
+    target.meals.push({
+      id: "meal_sweet_potato_soup",
+      name: "Sweet potato soup",
+      ingredients: [
+        { itemId: itemIds.item_olive_oil, qty: "1", unit: "tbsp" },
+        { itemId: itemIds.item_onion, qty: "1", unit: "" },
+        { itemId: itemIds.item_carrots, qty: "2", unit: "" },
+        { itemId: itemIds.item_root_ginger, qty: "4", unit: "cm" },
+        { itemId: itemIds.item_garlic, qty: "1", unit: "clove" },
+        { itemId: itemIds.item_chilli_flakes, qty: "0.5", unit: "tsp" },
+        { itemId: itemIds.item_sweet_potatoes, qty: "700", unit: "g" },
+        { itemId: itemIds.item_vegetable_stock, qty: "1.2", unit: "l" },
+        { itemId: itemIds.item_salt, qty: "", unit: "" },
+        { itemId: itemIds.item_black_pepper, qty: "", unit: "" }
+      ],
+      sourceUrl: "https://www.bbc.co.uk/food/recipes/sweet_potato_soup_62834",
+      createdAt: now,
+      updatedAt: now,
+      lastUsedAt: null
+    });
+  }
+
+  target.bundledContentVersion = BUNDLED_CONTENT_VERSION;
+  return target;
 }
 
 function seedData() {
@@ -123,65 +254,69 @@ function seedData() {
     { id: "meal_roast", name: "Roast chicken", ingredients: [ingredient("wholechicken", 1), ingredient("potatoes", 1, "kg"), ingredient("carrots", 1, "pack"), ingredient("peas", 1, "pack"), ingredient("gravy")], createdAt: now, updatedAt: now, lastUsedAt: null }
   ];
 
-  return {
-    schemaVersion: 1,
+  const seeded = {
+    schemaVersion: 2,
     appVersion: APP_VERSION,
+    bundledContentVersion: 0,
     items,
     meals,
     weeks: {},
-    settings: { hideChecked: false, lastTab: "week" }
+    settings: { hideChecked: false, lastTab: "week", weekStartDay: DEFAULT_WEEK_START_DAY }
   };
+  return applyBundledContent(seeded);
 }
 
 function loadData() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
     if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.items) || !Array.isArray(parsed.meals)) return seedData();
-    parsed.schemaVersion = Number(parsed.schemaVersion) || 1;
-    parsed.appVersion = APP_VERSION;
+
+    const oldSchema = Number(parsed.schemaVersion) || 1;
+    const hadWeekStartSetting = Number.isInteger(Number(parsed.settings?.weekStartDay));
+    const oldStartDay = hadWeekStartSetting ? Number(parsed.settings.weekStartDay) : 1;
+    const weekStartDay = hadWeekStartSetting ? Number(parsed.settings.weekStartDay) : DEFAULT_WEEK_START_DAY;
+
     parsed.weeks = parsed.weeks && typeof parsed.weeks === "object" ? parsed.weeks : {};
-    parsed.settings = { hideChecked: false, lastTab: "week", ...(parsed.settings || {}) };
-    return parsed;
+    if (oldSchema < 2 || !hadWeekStartSetting) {
+      parsed.weeks = rebaseWeekMap(parsed.weeks, oldStartDay, weekStartDay);
+    } else {
+      Object.entries(parsed.weeks).forEach(([key, week]) => { parsed.weeks[key] = normaliseWeek(week, key); });
+    }
+
+    parsed.schemaVersion = 2;
+    parsed.appVersion = APP_VERSION;
+    parsed.settings = { hideChecked: false, lastTab: "week", weekStartDay: DEFAULT_WEEK_START_DAY, ...(parsed.settings || {}), weekStartDay };
+    return applyBundledContent(parsed);
   } catch (_) {
     return seedData();
   }
 }
 
 let data = loadData();
-let selectedWeekMonday = startOfWeek(new Date());
+let selectedWeekStart = startOfWeek(new Date(), data.settings.weekStartDay);
 let pickerDayIndex = null;
+let pickerSlotType = "dinner";
 let toastTimer = null;
 let deferredInstallPrompt = null;
 
 function saveData() {
   data.appVersion = APP_VERSION;
+  data.schemaVersion = 2;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
-function weekKey(monday = selectedWeekMonday) {
-  return localDateKey(startOfWeek(monday));
+function weekKey(start = selectedWeekStart) {
+  return localDateKey(startOfWeek(start, data.settings.weekStartDay));
 }
 
-function getWeek(monday = selectedWeekMonday) {
-  const key = weekKey(monday);
+function getWeek(start = selectedWeekStart) {
+  const key = weekKey(start);
   if (!data.weeks[key]) {
-    data.weeks[key] = {
-      monday: key,
-      meals: Array(7).fill(null),
-      regularItemIds: [],
-      extras: [],
-      checkedItemIds: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+    data.weeks[key] = emptyWeek(key);
     saveData();
   }
-  const week = data.weeks[key];
-  week.meals = Array.isArray(week.meals) ? [...week.meals, ...Array(7).fill(null)].slice(0, 7) : Array(7).fill(null);
-  week.regularItemIds = Array.isArray(week.regularItemIds) ? week.regularItemIds : [];
-  week.extras = Array.isArray(week.extras) ? week.extras : [];
-  week.checkedItemIds = Array.isArray(week.checkedItemIds) ? week.checkedItemIds : [];
-  return week;
+  data.weeks[key] = normaliseWeek(data.weeks[key], key);
+  return data.weeks[key];
 }
 
 function findMeal(id) { return data.meals.find(meal => meal.id === id) || null; }
@@ -244,16 +379,26 @@ function renderKnownItems() {
 function renderWeek() {
   const week = getWeek();
   const todayKey = localDateKey(new Date());
-  $("#week-range").textContent = formatWeekRange(selectedWeekMonday);
+  $("#week-range").textContent = formatWeekRange(selectedWeekStart);
   $("#week-list").innerHTML = week.meals.map((mealId, index) => {
-    const date = addDays(selectedWeekMonday, index);
-    const noMeal = mealId === NO_MEAL;
-    const meal = noMeal ? null : findMeal(mealId);
-    return `<button class="day-row ${meal || noMeal ? "" : "empty"} ${localDateKey(date) === todayKey ? "today" : ""}" type="button" data-day-index="${index}">
-      <span class="day-meta"><strong>${escapeHtml(formatDay(date))}</strong><span>${escapeHtml(formatDateShort(date))}</span></span>
-      <span class="day-meal"><strong>${meal ? escapeHtml(meal.name) : noMeal ? "No meal / eating out" : "Choose meal"}</strong><span>${meal ? `${meal.ingredients.length} shopping item${meal.ingredients.length === 1 ? "" : "s"}` : noMeal ? "Nothing added to the shop" : "Tap to plan dinner"}</span></span>
-      <span class="row-arrow" aria-hidden="true">›</span>
-    </button>`;
+    const date = addDays(selectedWeekStart, index);
+    const noDinner = mealId === NO_MEAL;
+    const dinner = noDinner ? null : findMeal(mealId);
+    const lunchId = week.lunches[index];
+    const lunch = lunchId ? findMeal(lunchId) : null;
+    const dinnerName = dinner ? dinner.name : noDinner ? "No meal / eating out" : "Choose meal";
+    const dinnerClass = dinner || noDinner ? "" : "empty";
+    const lunchMarkup = lunch
+      ? `<button class="meal-slot lunch" type="button" data-day-index="${index}" data-meal-slot="lunch"><span class="slot-label">Lunch</span><strong>${escapeHtml(lunch.name)}</strong><span class="slot-arrow" aria-hidden="true">›</span></button>`
+      : `<button class="add-lunch-button" type="button" data-day-index="${index}" data-meal-slot="lunch">＋ Lunch</button>`;
+
+    return `<article class="day-card ${localDateKey(date) === todayKey ? "today" : ""}">
+      <div class="day-meta"><strong>${escapeHtml(formatDay(date))}</strong><span>${escapeHtml(formatDateShort(date))}</span></div>
+      <div class="day-slots">
+        <button class="meal-slot dinner ${dinnerClass}" type="button" data-day-index="${index}" data-meal-slot="dinner"><span class="slot-label">Dinner</span><strong>${escapeHtml(dinnerName)}</strong><span class="slot-arrow" aria-hidden="true">›</span></button>
+        ${lunchMarkup}
+      </div>
+    </article>`;
   }).join("");
 }
 
@@ -300,10 +445,13 @@ function pickerRow(meal) {
   return `<button class="picker-row" type="button" data-pick-meal="${meal.id}"><strong>${escapeHtml(meal.name)}</strong><span>${meal.ingredients.length} item${meal.ingredients.length === 1 ? "" : "s"}</span></button>`;
 }
 
-function openMealPicker(dayIndex) {
+function openMealPicker(dayIndex, slotType = "dinner") {
   pickerDayIndex = Number(dayIndex);
-  const date = addDays(selectedWeekMonday, pickerDayIndex);
-  $("#meal-picker-title").textContent = `${formatDayLong(date)} · ${formatDateShort(date)}`;
+  pickerSlotType = slotType === "lunch" ? "lunch" : "dinner";
+  const date = addDays(selectedWeekStart, pickerDayIndex);
+  const slotLabel = pickerSlotType === "lunch" ? "Lunch" : "Dinner";
+  $("#meal-picker-title").textContent = `${formatDayLong(date)} ${slotLabel.toLowerCase()} · ${formatDateShort(date)}`;
+  $("#clear-day").textContent = pickerSlotType === "lunch" ? "Remove lunch" : "No dinner / eating out";
   $("#picker-search").value = "";
   renderPicker();
   openOverlay("meal-picker-overlay");
@@ -311,7 +459,11 @@ function openMealPicker(dayIndex) {
 
 function chooseMealForDay(mealId) {
   const week = getWeek();
-  week.meals[pickerDayIndex] = mealId === NO_MEAL ? NO_MEAL : (mealId || null);
+  if (pickerSlotType === "lunch") {
+    week.lunches[pickerDayIndex] = mealId === NO_MEAL ? null : (mealId || null);
+  } else {
+    week.meals[pickerDayIndex] = mealId === NO_MEAL ? NO_MEAL : (mealId || null);
+  }
   week.updatedAt = new Date().toISOString();
   const meal = mealId === NO_MEAL ? null : findMeal(mealId);
   if (meal) meal.lastUsedAt = new Date().toISOString();
@@ -386,6 +538,7 @@ function deleteCurrentMeal() {
   data.meals = data.meals.filter(entry => entry.id !== id);
   Object.values(data.weeks).forEach(week => {
     if (Array.isArray(week.meals)) week.meals = week.meals.map(mealId => mealId === id ? null : mealId);
+    if (Array.isArray(week.lunches)) week.lunches = week.lunches.map(mealId => mealId === id ? null : mealId);
   });
   saveData();
   closeOverlay("meal-editor-overlay");
@@ -416,6 +569,10 @@ function consolidateShopping() {
   };
 
   week.meals.forEach(mealId => {
+    const meal = findMeal(mealId);
+    meal?.ingredients.forEach(ing => push({ ...ing, source: meal.name }));
+  });
+  week.lunches.forEach(mealId => {
     const meal = findMeal(mealId);
     meal?.ingredients.forEach(ing => push({ ...ing, source: meal.name }));
   });
@@ -457,7 +614,7 @@ function renderShop() {
   $("#remaining-count").textContent = `${remaining} left`;
   $("#done-count").textContent = `${done} done`;
   $("#toggle-checked").textContent = data.settings.hideChecked ? "Show checked" : "Hide checked";
-  $("#shop-week-label").textContent = formatWeekRange(selectedWeekMonday);
+  $("#shop-week-label").textContent = formatWeekRange(selectedWeekStart);
   $("#shop-empty").hidden = items.length !== 0;
 
   let html = "";
@@ -586,6 +743,29 @@ function addRegularItem(event) {
   renderRegularManager();
 }
 
+function openWeekSettings() {
+  $("#week-start-day").value = String(data.settings.weekStartDay);
+  openOverlay("settings-overlay");
+}
+
+function saveWeekSettings(event) {
+  event.preventDefault();
+  const nextStartDay = Number($("#week-start-day").value);
+  if (!Number.isInteger(nextStartDay) || nextStartDay < 0 || nextStartDay > 6) return;
+
+  const previousStartDay = Number(data.settings.weekStartDay);
+  if (nextStartDay !== previousStartDay) {
+    const viewAnchor = addDays(selectedWeekStart, 3);
+    data.weeks = rebaseWeekMap(data.weeks, previousStartDay, nextStartDay);
+    data.settings.weekStartDay = nextStartDay;
+    selectedWeekStart = startOfWeek(viewAnchor, nextStartDay);
+    saveData();
+    renderAll();
+    showToast("Week start updated");
+  }
+  closeOverlay("settings-overlay");
+}
+
 function switchTab(tab) {
   if (!['week', 'meals', 'shop'].includes(tab)) tab = 'week';
   $$(".screen").forEach(screen => { const active = screen.dataset.screen === tab; screen.hidden = !active; screen.classList.toggle("active", active); });
@@ -605,15 +785,15 @@ function renderAll() {
 }
 
 function changeWeek(offset) {
-  selectedWeekMonday = addDays(selectedWeekMonday, offset * 7);
+  selectedWeekStart = addDays(selectedWeekStart, offset * 7);
   renderWeek();
   renderShop();
 }
 
 function bindEvents() {
   document.addEventListener("click", event => {
-    const day = event.target.closest("[data-day-index]");
-    if (day) return openMealPicker(day.dataset.dayIndex);
+    const slot = event.target.closest("[data-day-index][data-meal-slot]");
+    if (slot) return openMealPicker(slot.dataset.dayIndex, slot.dataset.mealSlot);
     const pick = event.target.closest("[data-pick-meal]");
     if (pick) return chooseMealForDay(pick.dataset.pickMeal);
     const edit = event.target.closest("[data-edit-meal]");
@@ -644,7 +824,9 @@ function bindEvents() {
 
   $("#prev-week").addEventListener("click", () => changeWeek(-1));
   $("#next-week").addEventListener("click", () => changeWeek(1));
-  $("#today-week").addEventListener("click", () => { selectedWeekMonday = startOfWeek(new Date()); renderWeek(); renderShop(); });
+  $("#week-settings").addEventListener("click", openWeekSettings);
+  $("#settings-form").addEventListener("submit", saveWeekSettings);
+  $("#today-week").addEventListener("click", () => { selectedWeekStart = startOfWeek(new Date(), data.settings.weekStartDay); renderWeek(); renderShop(); });
   $("#week-to-shop").addEventListener("click", () => switchTab("shop"));
   $("#clear-day").addEventListener("click", () => chooseMealForDay(NO_MEAL));
   $("#picker-search").addEventListener("input", renderPicker);

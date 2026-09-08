@@ -1,14 +1,13 @@
-# Meal Planner v1.0.0
+# Meal Planner v1.0.2
 
-First working prototype of the standalone family meal-planning and weekly-shopping PWA.
+Small content update adding the first meal from an external recipe link.
 
 ## Included in this release
-- Seven-day dinner planner with reusable meal selection.
-- Seeded meal library with add/edit/delete and reusable shopping items.
-- Consolidated shopping list grouped by supermarket category.
-- Regular household items, one-off additions and one-tap shop check-off.
-- Local-only versioned data storage ready for later backup/import work.
-- iPhone-first GameHub-style UI, installable PWA and offline app-shell caching.
+- Adds BBC Food's Sweet potato soup as a reusable meal.
+- Adds its shopping ingredients and quantities to the shared item catalogue.
+- Existing v1.0.1 data is upgraded in place without resetting saved meals, weeks or shopping data.
+- Stores the original recipe URL with the meal data for possible future recipe-link features.
+- Updated PWA cache/version so the release replaces v1.0.1 cleanly.
 
 ## Upload
-Upload all files from this ZIP directly to the root of the new GitHub repository and enable GitHub Pages for that repository.
+Upload all files from this ZIP directly to the repository root, replacing the previous release files.
