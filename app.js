@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.4";
+const APP_VERSION = "1.0.5";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -269,27 +269,34 @@ function seedData() {
   return applyBundledContent(seeded);
 }
 
+function prepareDataObject(parsed) {
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.items) || !Array.isArray(parsed.meals)) {
+    throw new Error("Not valid Meal Planner data");
+  }
+
+  const clean = clone(parsed);
+  const oldSchema = Number(clean.schemaVersion) || 1;
+  const hadWeekStartSetting = Number.isInteger(Number(clean.settings?.weekStartDay));
+  const oldStartDay = hadWeekStartSetting ? Number(clean.settings.weekStartDay) : 1;
+  const weekStartDay = hadWeekStartSetting ? Number(clean.settings.weekStartDay) : DEFAULT_WEEK_START_DAY;
+
+  clean.weeks = clean.weeks && typeof clean.weeks === "object" ? clean.weeks : {};
+  if (oldSchema < 2 || !hadWeekStartSetting) {
+    clean.weeks = rebaseWeekMap(clean.weeks, oldStartDay, weekStartDay);
+  } else {
+    Object.entries(clean.weeks).forEach(([key, week]) => { clean.weeks[key] = normaliseWeek(week, key); });
+  }
+
+  clean.schemaVersion = 3;
+  clean.appVersion = APP_VERSION;
+  clean.settings = { hideChecked: false, lastTab: "week", weekStartDay: DEFAULT_WEEK_START_DAY, ...(clean.settings || {}), weekStartDay };
+  return applyBundledContent(clean);
+}
+
 function loadData() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.items) || !Array.isArray(parsed.meals)) return seedData();
-
-    const oldSchema = Number(parsed.schemaVersion) || 1;
-    const hadWeekStartSetting = Number.isInteger(Number(parsed.settings?.weekStartDay));
-    const oldStartDay = hadWeekStartSetting ? Number(parsed.settings.weekStartDay) : 1;
-    const weekStartDay = hadWeekStartSetting ? Number(parsed.settings.weekStartDay) : DEFAULT_WEEK_START_DAY;
-
-    parsed.weeks = parsed.weeks && typeof parsed.weeks === "object" ? parsed.weeks : {};
-    if (oldSchema < 2 || !hadWeekStartSetting) {
-      parsed.weeks = rebaseWeekMap(parsed.weeks, oldStartDay, weekStartDay);
-    } else {
-      Object.entries(parsed.weeks).forEach(([key, week]) => { parsed.weeks[key] = normaliseWeek(week, key); });
-    }
-
-    parsed.schemaVersion = 3;
-    parsed.appVersion = APP_VERSION;
-    parsed.settings = { hideChecked: false, lastTab: "week", weekStartDay: DEFAULT_WEEK_START_DAY, ...(parsed.settings || {}), weekStartDay };
-    return applyBundledContent(parsed);
+    return prepareDataObject(parsed);
   } catch (_) {
     return seedData();
   }
@@ -781,6 +788,216 @@ function addRegularItem(event) {
   renderRegularManager();
 }
 
+function openDataSharing() {
+  openOverlay("data-overlay");
+}
+
+function fileSafeDate(value = new Date()) {
+  const date = value instanceof Date ? value : fromDateKey(value);
+  return localDateKey(date);
+}
+
+function makeJsonFile(payload, filename) {
+  const json = JSON.stringify(payload, null, 2);
+  try {
+    return new File([json], filename, { type: "application/json" });
+  } catch (_) {
+    const blob = new Blob([json], { type: "application/json" });
+    blob.name = filename;
+    return blob;
+  }
+}
+
+function downloadJsonFile(file, filename) {
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename || file.name || "meal-planner.json";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+async function shareOrDownloadJson(payload, filename, title, text) {
+  const file = makeJsonFile(payload, filename);
+  try {
+    if (navigator.share && navigator.canShare && file instanceof File && navigator.canShare({ files: [file] })) {
+      await navigator.share({ title, text, files: [file] });
+      return "shared";
+    }
+  } catch (error) {
+    if (error?.name === "AbortError") return "cancelled";
+    console.warn("File sharing failed, downloading instead:", error);
+  }
+  downloadJsonFile(file, filename);
+  return "downloaded";
+}
+
+async function exportBackup() {
+  const payload = {
+    format: "MealPlannerBackup",
+    version: 1,
+    appVersion: APP_VERSION,
+    exportedAt: new Date().toISOString(),
+    data: clone(data)
+  };
+  const result = await shareOrDownloadJson(
+    payload,
+    `MealPlanner-backup-${fileSafeDate()}.json`,
+    "Meal Planner backup",
+    "Meal Planner backup containing meals, plans and shopping data."
+  );
+  if (result === "downloaded") showToast("Backup downloaded");
+}
+
+async function importBackupFile(file) {
+  if (!file) return;
+  try {
+    const payload = JSON.parse(await file.text());
+    if (payload?.format !== "MealPlannerBackup" || payload.version !== 1 || !payload.data) throw new Error("This is not a Meal Planner backup file.");
+    const imported = prepareDataObject(payload.data);
+    if (!confirm("Import this backup? It will replace the Meal Planner data stored in this copy of the app.")) return;
+    data = imported;
+    selectedWeekStart = startOfWeek(new Date(), data.settings.weekStartDay);
+    saveData();
+    renderAll();
+    switchTab(data.settings.lastTab || "week");
+    closeOverlay("data-overlay");
+    showToast("Backup imported");
+  } catch (error) {
+    alert(error?.message || "That backup could not be imported.");
+  }
+}
+
+function buildSharedWeekPayload() {
+  const week = getWeek();
+  const usedMealIds = new Set(
+    [...week.meals, ...week.lunches].filter(id => id && id !== NO_MEAL)
+  );
+  const meals = data.meals
+    .filter(meal => usedMealIds.has(meal.id))
+    .map(meal => ({
+      id: meal.id,
+      name: meal.name,
+      ingredients: clone(meal.ingredients || []),
+      sourceUrl: meal.sourceUrl || null
+    }));
+  const usedItemIds = new Set();
+  meals.forEach(meal => meal.ingredients.forEach(ingredient => usedItemIds.add(ingredient.itemId)));
+  const items = data.items
+    .filter(item => usedItemIds.has(item.id))
+    .map(item => ({ id: item.id, name: item.name, category: item.category }));
+  const days = Array.from({ length: 7 }, (_, index) => ({
+    date: localDateKey(addDays(selectedWeekStart, index)),
+    dinnerMealId: week.meals[index] || null,
+    lunchMealId: week.lunches[index] || null
+  }));
+  return {
+    format: "MealPlannerWeek",
+    version: 1,
+    appVersion: APP_VERSION,
+    exportedAt: new Date().toISOString(),
+    startDate: localDateKey(selectedWeekStart),
+    weekStartDay: Number(data.settings.weekStartDay),
+    days,
+    meals,
+    items
+  };
+}
+
+async function shareCurrentWeek() {
+  const payload = buildSharedWeekPayload();
+  const mealCount = payload.days.filter(day => day.dinnerMealId && day.dinnerMealId !== NO_MEAL).length;
+  const lunchCount = payload.days.filter(day => day.lunchMealId).length;
+  const result = await shareOrDownloadJson(
+    payload,
+    `MealPlanner-week-${payload.startDate}.json`,
+    `Meal plan · ${formatWeekRange(selectedWeekStart)}`,
+    `${mealCount} dinner${mealCount === 1 ? "" : "s"}${lunchCount ? ` and ${lunchCount} lunch${lunchCount === 1 ? "" : "es"}` : ""}. Import this file in Meal Planner.`
+  );
+  if (result === "downloaded") showToast("Shared week downloaded");
+}
+
+function findMealByName(name) {
+  const key = keyName(name);
+  return data.meals.find(meal => keyName(meal.name) === key) || null;
+}
+
+function weekForCalendarDate(date) {
+  const start = startOfWeek(date, data.settings.weekStartDay);
+  const key = localDateKey(start);
+  if (!data.weeks[key]) data.weeks[key] = emptyWeek(key);
+  data.weeks[key] = normaliseWeek(data.weeks[key], key);
+  return { week: data.weeks[key], index: dateDistance(start, date), start };
+}
+
+async function importSharedWeekFile(file) {
+  if (!file) return;
+  try {
+    const payload = JSON.parse(await file.text());
+    if (payload?.format !== "MealPlannerWeek" || payload.version !== 1 || !Array.isArray(payload.days) || !Array.isArray(payload.meals) || !Array.isArray(payload.items)) {
+      throw new Error("This is not a shared Meal Planner week file.");
+    }
+    if (!payload.days.length || payload.days.some(day => !/^\d{4}-\d{2}-\d{2}$/.test(String(day.date || "")))) {
+      throw new Error("The shared week does not contain valid calendar dates.");
+    }
+
+    const firstDate = fromDateKey(payload.days[0].date);
+    const lastDate = fromDateKey(payload.days[payload.days.length - 1].date);
+    const range = `${formatDateShort(firstDate)} – ${formatDateShort(lastDate)}`;
+    if (!confirm(`Import the shared meal plan for ${range}? Dinner and lunch choices on those dates will be replaced.`)) return;
+
+    const itemMap = new Map();
+    payload.items.forEach(sharedItem => {
+      const item = ensureItem(sharedItem.name, sharedItem.category || "Other", false);
+      if (item && sharedItem.id) itemMap.set(sharedItem.id, item.id);
+    });
+
+    const mealMap = new Map();
+    payload.meals.forEach(sharedMeal => {
+      const name = normaliseName(sharedMeal.name);
+      if (!name || !sharedMeal.id) return;
+      const ingredients = Array.isArray(sharedMeal.ingredients) ? sharedMeal.ingredients
+        .map(ingredient => ({
+          itemId: itemMap.get(ingredient.itemId),
+          qty: normaliseName(ingredient.qty),
+          unit: normaliseName(ingredient.unit)
+        }))
+        .filter(ingredient => ingredient.itemId) : [];
+      let meal = findMealByName(name);
+      const now = new Date().toISOString();
+      if (!meal) {
+        meal = { id: uid("meal"), name, ingredients, createdAt: now, updatedAt: now, lastUsedAt: null };
+        data.meals.push(meal);
+      } else {
+        meal.ingredients = ingredients;
+        meal.updatedAt = now;
+      }
+      if (sharedMeal.sourceUrl) meal.sourceUrl = sharedMeal.sourceUrl;
+      mealMap.set(sharedMeal.id, meal.id);
+    });
+
+    payload.days.forEach(day => {
+      const date = fromDateKey(day.date);
+      const target = weekForCalendarDate(date);
+      if (target.index < 0 || target.index > 6) return;
+      target.week.meals[target.index] = day.dinnerMealId === NO_MEAL ? NO_MEAL : (mealMap.get(day.dinnerMealId) || null);
+      target.week.lunches[target.index] = mealMap.get(day.lunchMealId) || null;
+      target.week.updatedAt = new Date().toISOString();
+    });
+
+    selectedWeekStart = startOfWeek(firstDate, data.settings.weekStartDay);
+    saveData();
+    renderAll();
+    switchTab("week");
+    closeOverlay("data-overlay");
+    showToast("Shared week imported");
+  } catch (error) {
+    alert(error?.message || "That shared week could not be imported.");
+  }
+}
+
 function openWeekSettings() {
   $("#week-start-day").value = String(data.settings.weekStartDay);
   openOverlay("settings-overlay");
@@ -864,6 +1081,7 @@ function bindEvents() {
 
   $("#prev-week").addEventListener("click", () => changeWeek(-1));
   $("#next-week").addEventListener("click", () => changeWeek(1));
+  $("#data-sharing").addEventListener("click", openDataSharing);
   $("#week-settings").addEventListener("click", openWeekSettings);
   $("#settings-form").addEventListener("submit", saveWeekSettings);
   $("#today-week").addEventListener("click", () => { selectedWeekStart = startOfWeek(new Date(), data.settings.weekStartDay); renderWeek(); renderShop(); });
@@ -891,6 +1109,21 @@ function bindEvents() {
   $("#regular-picker-done").addEventListener("click", () => closeOverlay("regular-picker-overlay"));
   $("#manage-regulars").addEventListener("click", () => { renderRegularManager(); openOverlay("regular-manager-overlay"); });
   $("#regular-add-form").addEventListener("submit", addRegularItem);
+
+  $("#export-backup").addEventListener("click", exportBackup);
+  $("#import-backup").addEventListener("click", () => $("#backup-file-input").click());
+  $("#backup-file-input").addEventListener("change", async event => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    await importBackupFile(file);
+  });
+  $("#share-week").addEventListener("click", shareCurrentWeek);
+  $("#import-week").addEventListener("click", () => $("#week-file-input").click());
+  $("#week-file-input").addEventListener("change", async event => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    await importSharedWeekFile(file);
+  });
 
   $("#install-done").addEventListener("click", () => closeOverlay("install-overlay"));
   $("#install-button").addEventListener("click", handleInstallClick);

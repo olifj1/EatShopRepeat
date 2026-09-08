@@ -521,3 +521,18 @@ body.modal-open { overflow: hidden; }
   .skip-item-button { min-width: 38px; padding: 0 6px; font-size: 9px; }
   .shop-item-qty { max-width: 75px; }
 }
+
+/* v1.0.5 backup + sharing */
+.data-card {
+  padding: 14px;
+  margin-top: 10px;
+  border: 1.5px solid var(--gh-line);
+  border-radius: var(--gh-radius);
+  background: rgba(247,241,235,.72);
+}
+.data-card:first-of-type { margin-top: 2px; }
+.data-card-heading strong { display: block; font-size: 15px; line-height: 1.2; }
+.data-card-heading small { display: block; margin-top: 4px; color: var(--gh-muted); font-size: 12px; line-height: 1.35; }
+.data-button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.data-button-row .primary-button, .data-button-row .secondary-button { width: 100%; min-width: 0; }
+.visually-hidden-file { position: fixed !important; left: -9999px !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }

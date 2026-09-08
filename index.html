@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=1.0.4">
+  <link rel="stylesheet" href="./style.css?v=1.0.5">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -35,6 +35,9 @@
             <p class="screen-subtitle" id="week-range"></p>
           </div>
           <div class="week-nav" aria-label="Week controls">
+            <button class="mini-icon-button settings-button" id="data-sharing" type="button" aria-label="Backup and sharing" title="Backup and sharing">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L8 8m4-4 4 4"/><path d="M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>
+            </button>
             <button class="mini-icon-button settings-button" id="week-settings" type="button" aria-label="Week settings" title="Week settings">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
             </button>
@@ -266,6 +269,46 @@
     </section>
   </div>
 
+  <div class="overlay" id="data-overlay" hidden>
+    <section class="sheet tall-sheet" role="dialog" aria-modal="true" aria-labelledby="data-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">DATA &amp; SHARING</p>
+          <h3 id="data-title">Backup and share</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="data-overlay" aria-label="Close">×</button>
+      </div>
+
+      <div class="data-card">
+        <div class="data-card-heading">
+          <strong>Move or back up everything</strong>
+          <small>Meals, plans, regulars and shopping state.</small>
+        </div>
+        <div class="data-button-row">
+          <button class="secondary-button" id="export-backup" type="button">Export backup</button>
+          <button class="secondary-button" id="import-backup" type="button">Import backup</button>
+        </div>
+        <p class="settings-note">Use this to move your Safari copy into the Home Screen app, restore a phone, or keep a manual backup.</p>
+      </div>
+
+      <div class="data-card">
+        <div class="data-card-heading">
+          <strong>Share this meal plan</strong>
+          <small>Sends this week’s dinners, lunches and the meals/ingredients they use.</small>
+        </div>
+        <div class="data-button-row">
+          <button class="primary-button" id="share-week" type="button">Share this week</button>
+          <button class="secondary-button" id="import-week" type="button">Import shared week</button>
+        </div>
+        <p class="settings-note">This is a snapshot rather than live sync. Regulars, one-off items and checked shopping items stay personal.</p>
+      </div>
+    </section>
+  </div>
+
+  <input id="backup-file-input" class="visually-hidden-file" type="file" accept="application/json,.json">
+  <input id="week-file-input" class="visually-hidden-file" type="file" accept="application/json,.json">
+
   <div class="overlay install-overlay" id="install-overlay" hidden>
     <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="install-title">
       <div class="sheet-handle" aria-hidden="true"></div>
@@ -285,6 +328,6 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.4"></script>
+  <script src="./app.js?v=1.0.5"></script>
 </body>
 </html>
