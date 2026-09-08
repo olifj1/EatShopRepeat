@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Meal Planner">
+  <meta name="theme-color" content="#e7dbd2">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="stylesheet" href="./style.css?v=1.0.0">
+  <title>Meal Planner</title>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div>
+        <p class="app-kicker">FAMILY FOOD</p>
+        <h1>Meal Planner</h1>
+      </div>
+      <button class="icon-button" id="install-button" type="button" aria-label="Install Meal Planner" title="Install Meal Planner" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m-4-4 4 4 4-4M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg>
+      </button>
+    </header>
+
+    <main class="main-content">
+      <section class="screen active" id="week-screen" data-screen="week" aria-labelledby="week-title">
+        <div class="screen-heading">
+          <div>
+            <p class="screen-kicker">PLAN</p>
+            <h2 id="week-title">This week</h2>
+            <p class="screen-subtitle" id="week-range"></p>
+          </div>
+          <div class="week-nav" aria-label="Change week">
+            <button class="mini-icon-button" id="prev-week" type="button" aria-label="Previous week">‹</button>
+            <button class="mini-icon-button" id="next-week" type="button" aria-label="Next week">›</button>
+          </div>
+        </div>
+
+        <div class="week-list" id="week-list"></div>
+
+        <div class="week-actions">
+          <button class="secondary-button" id="today-week" type="button">Current week</button>
+          <button class="primary-button" id="week-to-shop" type="button">View shopping list</button>
+        </div>
+      </section>
+
+      <section class="screen" id="meals-screen" data-screen="meals" aria-labelledby="meals-title" hidden>
+        <div class="screen-heading">
+          <div>
+            <p class="screen-kicker">LIBRARY</p>
+            <h2 id="meals-title">Meals</h2>
+            <p class="screen-subtitle">Reusable favourites for quick planning.</p>
+          </div>
+          <button class="round-action" id="add-meal" type="button" aria-label="Add meal">＋</button>
+        </div>
+
+        <label class="search-field">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+          <input id="meal-search" type="search" placeholder="Search meals" autocomplete="off">
+        </label>
+
+        <div class="meal-list" id="meal-list"></div>
+      </section>
+
+      <section class="screen" id="shop-screen" data-screen="shop" aria-labelledby="shop-title" hidden>
+        <div class="screen-heading shop-heading">
+          <div>
+            <p class="screen-kicker">SHOP</p>
+            <h2 id="shop-title">Shopping</h2>
+            <p class="screen-subtitle" id="shop-week-label"></p>
+          </div>
+          <button class="round-action" id="add-shop-item" type="button" aria-label="Add shopping item">＋</button>
+        </div>
+
+        <div class="shop-summary-card">
+          <div>
+            <strong id="remaining-count">0 left</strong>
+            <span id="done-count">0 done</span>
+          </div>
+          <button class="text-button" id="toggle-checked" type="button">Hide checked</button>
+        </div>
+
+        <div class="shop-tools">
+          <button class="tool-button" id="add-regulars" type="button">
+            <span class="tool-icon" aria-hidden="true">↻</span>
+            <span><strong>Add regulars</strong><small>Milk, bread, household…</small></span>
+          </button>
+          <button class="tool-button" id="manage-regulars" type="button">
+            <span class="tool-icon" aria-hidden="true">☆</span>
+            <span><strong>Manage regulars</strong><small>Remember your usual items</small></span>
+          </button>
+        </div>
+
+        <div class="shopping-list" id="shopping-list"></div>
+        <div class="empty-state" id="shop-empty" hidden>
+          <div class="empty-icon" aria-hidden="true">✓</div>
+          <strong>Your list is empty</strong>
+          <p>Choose meals for the week, add regulars, or add an item.</p>
+        </div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Main navigation">
+      <button class="nav-button active" type="button" data-tab="week" aria-current="page">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="14" rx="2"/><path d="M8 3.5v4M16 3.5v4M4 9.5h16"/></svg>
+        <span>Week</span>
+      </button>
+      <button class="nav-button" type="button" data-tab="meals">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3.5"/><path d="M4 4v6M2.5 7h3M20 4v16"/></svg>
+        <span>Meals</span>
+      </button>
+      <button class="nav-button" type="button" data-tab="shop">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1.5 10h-11zM8 8l4-5 4 5"/><path d="M9 12v3M12 12v3M15 12v3"/></svg>
+        <span>Shop</span>
+      </button>
+    </nav>
+  </div>
+
+  <div class="overlay" id="meal-picker-overlay" hidden>
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="meal-picker-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">CHOOSE MEAL</p>
+          <h3 id="meal-picker-title">Monday</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="meal-picker-overlay" aria-label="Close">×</button>
+      </div>
+      <label class="search-field compact">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+        <input id="picker-search" type="search" placeholder="Find a meal" autocomplete="off">
+      </label>
+      <div class="picker-list" id="picker-list"></div>
+      <button class="danger-quiet-button" id="clear-day" type="button">No meal / eating out</button>
+    </section>
+  </div>
+
+  <div class="overlay" id="meal-editor-overlay" hidden>
+    <section class="sheet tall-sheet" role="dialog" aria-modal="true" aria-labelledby="meal-editor-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">MEAL</p>
+          <h3 id="meal-editor-title">New meal</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="meal-editor-overlay" aria-label="Close">×</button>
+      </div>
+
+      <form id="meal-form">
+        <input type="hidden" id="meal-id">
+        <label class="field-label" for="meal-name">Meal name</label>
+        <input class="text-input" id="meal-name" type="text" placeholder="e.g. Chicken fajitas" autocomplete="off" required>
+
+        <div class="ingredients-heading">
+          <div>
+            <strong>Shopping items</strong>
+            <small>Quantities are optional.</small>
+          </div>
+          <button class="small-add-button" id="add-ingredient" type="button">＋ Add</button>
+        </div>
+        <div class="ingredient-list" id="ingredient-list"></div>
+
+        <div class="form-actions">
+          <button class="danger-quiet-button left" id="delete-meal" type="button" hidden>Delete meal</button>
+          <button class="primary-button grow" type="submit">Save meal</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div class="overlay" id="shop-item-overlay" hidden>
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="shop-item-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">ADD TO LIST</p>
+          <h3 id="shop-item-title">Shopping item</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="shop-item-overlay" aria-label="Close">×</button>
+      </div>
+      <form id="shop-item-form">
+        <label class="field-label" for="shop-item-name">Item</label>
+        <input class="text-input" id="shop-item-name" list="known-items" type="text" placeholder="e.g. Bin bags" autocomplete="off" required>
+        <div class="two-field-row">
+          <label><span class="field-label">Amount</span><input class="text-input" id="shop-item-qty" type="text" inputmode="decimal" placeholder="Optional"></label>
+          <label><span class="field-label">Unit</span><input class="text-input" id="shop-item-unit" type="text" placeholder="pack / kg"></label>
+        </div>
+        <label class="field-label" for="shop-item-category">Category</label>
+        <select class="text-input select-input" id="shop-item-category"></select>
+        <label class="check-option"><input id="shop-item-regular" type="checkbox"><span>Remember as a regular item</span></label>
+        <button class="primary-button full-width" type="submit">Add to shopping list</button>
+      </form>
+    </section>
+  </div>
+
+  <div class="overlay" id="regular-picker-overlay" hidden>
+    <section class="sheet tall-sheet" role="dialog" aria-modal="true" aria-labelledby="regular-picker-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">REGULARS</p>
+          <h3 id="regular-picker-title">Add regular items</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="regular-picker-overlay" aria-label="Close">×</button>
+      </div>
+      <p class="sheet-copy">Tap the things you need this week.</p>
+      <div class="regular-grid" id="regular-picker-list"></div>
+      <button class="primary-button full-width" id="regular-picker-done" type="button">Done</button>
+    </section>
+  </div>
+
+  <div class="overlay" id="regular-manager-overlay" hidden>
+    <section class="sheet tall-sheet" role="dialog" aria-modal="true" aria-labelledby="regular-manager-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">REMEMBER</p>
+          <h3 id="regular-manager-title">Manage regulars</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="regular-manager-overlay" aria-label="Close">×</button>
+      </div>
+      <form class="inline-add-form" id="regular-add-form">
+        <input class="text-input" id="regular-add-name" type="text" placeholder="Add a regular item" autocomplete="off">
+        <button class="small-add-button" type="submit">Add</button>
+      </form>
+      <div class="regular-manager-list" id="regular-manager-list"></div>
+    </section>
+  </div>
+
+  <div class="overlay install-overlay" id="install-overlay" hidden>
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="install-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">INSTALL</p>
+          <h3 id="install-title">Add Meal Planner</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="install-overlay" aria-label="Close">×</button>
+      </div>
+      <div class="install-copy" id="install-copy"></div>
+      <button class="primary-button full-width" id="install-done" type="button">Got it</button>
+    </section>
+  </div>
+
+  <datalist id="known-items"></datalist>
+  <datalist id="ingredient-known-items"></datalist>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="./app.js?v=1.0.0"></script>
+</body>
+</html>
