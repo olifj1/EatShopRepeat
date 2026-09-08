@@ -536,3 +536,5 @@ body.modal-open { overflow: hidden; }
 .data-button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
 .data-button-row .primary-button, .data-button-row .secondary-button { width: 100%; min-width: 0; }
 .visually-hidden-file { position: fixed !important; left: -9999px !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
+
+.settings-secondary-action { margin-top: 10px; }

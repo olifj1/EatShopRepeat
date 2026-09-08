@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.5";
+const APP_VERSION = "1.0.6";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -1003,6 +1003,82 @@ function openWeekSettings() {
   openOverlay("settings-overlay");
 }
 
+function weekHasMealPlan(week) {
+  if (!week) return false;
+  return [...(week.meals || []), ...(week.lunches || [])].some(mealId => mealId !== null && mealId !== undefined);
+}
+
+function updateMoveWeekTarget() {
+  const input = $("#move-week-date");
+  const label = $("#move-week-target");
+  if (!input?.value) {
+    label.textContent = "";
+    return;
+  }
+  const pickedDate = fromDateKey(input.value);
+  const targetStart = startOfWeek(pickedDate, data.settings.weekStartDay);
+  label.textContent = `Destination: ${formatWeekRange(targetStart)}`;
+}
+
+function openMoveWeek() {
+  const sourceWeek = getWeek();
+  if (!weekHasMealPlan(sourceWeek)) {
+    showToast("There are no meals to move");
+    return;
+  }
+  $("#move-week-from").textContent = formatWeekRange(selectedWeekStart);
+  $("#move-week-date").value = localDateKey(addDays(selectedWeekStart, 7));
+  updateMoveWeekTarget();
+  closeOverlay("settings-overlay");
+  openOverlay("move-week-overlay");
+}
+
+function moveCurrentWeekPlan(event) {
+  event.preventDefault();
+  const rawDate = $("#move-week-date").value;
+  if (!rawDate) return;
+
+  const sourceStart = startOfWeek(selectedWeekStart, data.settings.weekStartDay);
+  const sourceKey = localDateKey(sourceStart);
+  const sourceWeek = getWeek(sourceStart);
+  if (!weekHasMealPlan(sourceWeek)) {
+    closeOverlay("move-week-overlay");
+    showToast("There are no meals to move");
+    return;
+  }
+
+  const targetStart = startOfWeek(fromDateKey(rawDate), data.settings.weekStartDay);
+  const targetKey = localDateKey(targetStart);
+  if (targetKey === sourceKey) {
+    showToast("Choose a different week");
+    return;
+  }
+
+  const existingTarget = data.weeks[targetKey] ? normaliseWeek(data.weeks[targetKey], targetKey) : emptyWeek(targetKey);
+  if (weekHasMealPlan(existingTarget)) {
+    const replace = confirm(`The destination week (${formatWeekRange(targetStart)}) already has planned meals. Replace those dinners and lunches?`);
+    if (!replace) return;
+  }
+
+  const now = new Date().toISOString();
+  existingTarget.meals = clone(sourceWeek.meals);
+  existingTarget.lunches = clone(sourceWeek.lunches);
+  existingTarget.updatedAt = now;
+  data.weeks[targetKey] = existingTarget;
+
+  sourceWeek.meals = Array(7).fill(null);
+  sourceWeek.lunches = Array(7).fill(null);
+  sourceWeek.updatedAt = now;
+  data.weeks[sourceKey] = sourceWeek;
+
+  selectedWeekStart = targetStart;
+  saveData();
+  renderAll();
+  closeOverlay("move-week-overlay");
+  switchTab("week");
+  showToast("Meal plan moved");
+}
+
 function saveWeekSettings(event) {
   event.preventDefault();
   const nextStartDay = Number($("#week-start-day").value);
@@ -1084,6 +1160,9 @@ function bindEvents() {
   $("#data-sharing").addEventListener("click", openDataSharing);
   $("#week-settings").addEventListener("click", openWeekSettings);
   $("#settings-form").addEventListener("submit", saveWeekSettings);
+  $("#move-week-plan").addEventListener("click", openMoveWeek);
+  $("#move-week-date").addEventListener("change", updateMoveWeekTarget);
+  $("#move-week-form").addEventListener("submit", moveCurrentWeekPlan);
   $("#today-week").addEventListener("click", () => { selectedWeekStart = startOfWeek(new Date(), data.settings.weekStartDay); renderWeek(); renderShop(); });
   $("#week-to-shop").addEventListener("click", () => switchTab("shop"));
   $("#clear-day").addEventListener("click", () => chooseMealForDay(null));

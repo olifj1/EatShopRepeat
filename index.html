@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=1.0.5">
+  <link rel="stylesheet" href="./style.css?v=1.0.6">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -265,6 +265,28 @@
         </select>
         <p class="settings-note">This sets the seven-day planning and shopping week. Existing planned meals stay attached to their calendar dates.</p>
         <button class="primary-button full-width" type="submit">Save week settings</button>
+        <button class="secondary-button full-width settings-secondary-action" id="move-week-plan" type="button">Move this week’s plan</button>
+      </form>
+    </section>
+  </div>
+
+  <div class="overlay" id="move-week-overlay" hidden>
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="move-week-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">MOVE PLAN</p>
+          <h3 id="move-week-title">Move this week</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="move-week-overlay" aria-label="Close">×</button>
+      </div>
+      <form id="move-week-form">
+        <p class="sheet-copy">Move the dinners and lunches from <strong id="move-week-from"></strong> to another week.</p>
+        <label class="field-label" for="move-week-date">A date in the destination week</label>
+        <input class="text-input" id="move-week-date" type="date" required>
+        <p class="settings-note" id="move-week-target"></p>
+        <p class="settings-note">Regulars, one-off shopping items and checked/not-needed state stay with their original weeks.</p>
+        <button class="primary-button full-width" type="submit">Move meal plan</button>
       </form>
     </section>
   </div>
@@ -328,6 +350,6 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.5"></script>
+  <script src="./app.js?v=1.0.6"></script>
 </body>
 </html>
