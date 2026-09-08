@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=1.0.2">
+  <link rel="stylesheet" href="./style.css?v=1.0.4">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -83,6 +83,7 @@
           <div>
             <strong id="remaining-count">0 left</strong>
             <span id="done-count">0 done</span>
+            <span id="skipped-count" class="skipped-count"></span>
           </div>
           <button class="text-button" id="toggle-checked" type="button">Hide checked</button>
         </div>
@@ -138,7 +139,10 @@
         <input id="picker-search" type="search" placeholder="Find a meal" autocomplete="off">
       </label>
       <div class="picker-list" id="picker-list"></div>
-      <button class="danger-quiet-button" id="clear-day" type="button">No meal / eating out</button>
+      <div class="picker-clear-actions">
+        <button class="secondary-button picker-clear-button" id="clear-day" type="button">Clear dinner</button>
+        <button class="danger-quiet-button picker-no-meal-button" id="no-dinner" type="button">No dinner / eating out</button>
+      </div>
     </section>
   </div>
 
@@ -281,6 +285,6 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.2"></script>
+  <script src="./app.js?v=1.0.4"></script>
 </body>
 </html>

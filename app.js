@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.2";
+const APP_VERSION = "1.0.4";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -90,6 +90,7 @@ function emptyWeek(startKey) {
     regularItemIds: [],
     extras: [],
     checkedItemIds: [],
+    notNeededItemIds: [],
     createdAt: now,
     updatedAt: now
   };
@@ -103,6 +104,7 @@ function normaliseWeek(week, key) {
   clean.regularItemIds = Array.isArray(clean.regularItemIds) ? clean.regularItemIds : [];
   clean.extras = Array.isArray(clean.extras) ? clean.extras : [];
   clean.checkedItemIds = Array.isArray(clean.checkedItemIds) ? clean.checkedItemIds : [];
+  clean.notNeededItemIds = Array.isArray(clean.notNeededItemIds) ? clean.notNeededItemIds : [];
   clean.createdAt = clean.createdAt || new Date().toISOString();
   clean.updatedAt = clean.updatedAt || clean.createdAt;
   delete clean.monday;
@@ -136,6 +138,7 @@ function rebaseWeekMap(weeks, oldStartDay, newStartDay) {
     const shoppingTarget = ensureTarget(shoppingStart);
     shoppingTarget.regularItemIds = Array.from(new Set([...shoppingTarget.regularItemIds, ...week.regularItemIds]));
     shoppingTarget.checkedItemIds = Array.from(new Set([...shoppingTarget.checkedItemIds, ...week.checkedItemIds]));
+    shoppingTarget.notNeededItemIds = Array.from(new Set([...shoppingTarget.notNeededItemIds, ...week.notNeededItemIds]));
     const existingExtraIds = new Set(shoppingTarget.extras.map(extra => extra.id));
     week.extras.forEach(extra => {
       if (!existingExtraIds.has(extra.id)) {
@@ -255,7 +258,7 @@ function seedData() {
   ];
 
   const seeded = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     appVersion: APP_VERSION,
     bundledContentVersion: 0,
     items,
@@ -283,7 +286,7 @@ function loadData() {
       Object.entries(parsed.weeks).forEach(([key, week]) => { parsed.weeks[key] = normaliseWeek(week, key); });
     }
 
-    parsed.schemaVersion = 2;
+    parsed.schemaVersion = 3;
     parsed.appVersion = APP_VERSION;
     parsed.settings = { hideChecked: false, lastTab: "week", weekStartDay: DEFAULT_WEEK_START_DAY, ...(parsed.settings || {}), weekStartDay };
     return applyBundledContent(parsed);
@@ -301,7 +304,7 @@ let deferredInstallPrompt = null;
 
 function saveData() {
   data.appVersion = APP_VERSION;
-  data.schemaVersion = 2;
+  data.schemaVersion = 3;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
@@ -451,7 +454,8 @@ function openMealPicker(dayIndex, slotType = "dinner") {
   const date = addDays(selectedWeekStart, pickerDayIndex);
   const slotLabel = pickerSlotType === "lunch" ? "Lunch" : "Dinner";
   $("#meal-picker-title").textContent = `${formatDayLong(date)} ${slotLabel.toLowerCase()} · ${formatDateShort(date)}`;
-  $("#clear-day").textContent = pickerSlotType === "lunch" ? "Remove lunch" : "No dinner / eating out";
+  $("#clear-day").textContent = pickerSlotType === "lunch" ? "Remove lunch" : "Clear dinner";
+  $("#no-dinner").hidden = pickerSlotType === "lunch";
   $("#picker-search").value = "";
   renderPicker();
   openOverlay("meal-picker-overlay");
@@ -608,11 +612,14 @@ function renderShop() {
   const week = getWeek();
   const items = consolidateShopping();
   const checked = new Set(week.checkedItemIds);
+  const notNeeded = new Set(week.notNeededItemIds);
   const visible = data.settings.hideChecked ? items.filter(item => !checked.has(item.itemId)) : items;
   const done = items.filter(item => checked.has(item.itemId)).length;
-  const remaining = items.length - done;
+  const skipped = items.filter(item => notNeeded.has(item.itemId)).length;
+  const remaining = items.filter(item => !checked.has(item.itemId) && !notNeeded.has(item.itemId)).length;
   $("#remaining-count").textContent = `${remaining} left`;
   $("#done-count").textContent = `${done} done`;
+  $("#skipped-count").textContent = skipped ? `${skipped} not needed` : "";
   $("#toggle-checked").textContent = data.settings.hideChecked ? "Show checked" : "Hide checked";
   $("#shop-week-label").textContent = formatWeekRange(selectedWeekStart);
   $("#shop-empty").hidden = items.length !== 0;
@@ -624,10 +631,12 @@ function renderShop() {
     html += `<section class="shop-category"><div class="shop-category-title"><span>${escapeHtml(category)}</span><span>${categoryItems.length}</span></div><div class="shop-category-items">`;
     html += categoryItems.map(item => {
       const isChecked = checked.has(item.itemId);
-      return `<div class="shop-item-row ${isChecked ? "checked" : ""}" data-check-item="${item.itemId}" role="button" tabindex="0" aria-pressed="${isChecked}">
-        <span class="check-circle" aria-hidden="true">✓</span>
+      const isNotNeeded = notNeeded.has(item.itemId);
+      const stateClass = isNotNeeded ? "not-needed" : (isChecked ? "checked" : "");
+      return `<div class="shop-item-row ${stateClass}" data-check-item="${item.itemId}" role="button" tabindex="0" aria-pressed="${isChecked}" aria-label="${escapeHtml(item.name)}${isNotNeeded ? ", not needed" : isChecked ? ", bought" : ""}">
+        <span class="check-circle" aria-hidden="true">${isNotNeeded ? "−" : "✓"}</span>
         <span><span class="shop-item-name">${escapeHtml(item.name)}</span><span class="shop-item-source">${escapeHtml(item.sourceText)}</span></span>
-        <span class="shop-item-tail"><span class="shop-item-qty">${escapeHtml(item.qtyText)}</span>${item.hasExtra ? `<button class="remove-extra-button" type="button" data-remove-extra="${item.itemId}" aria-label="Remove added ${escapeHtml(item.name)}">×</button>` : ""}</span>
+        <span class="shop-item-tail"><span class="shop-item-qty">${escapeHtml(item.qtyText)}</span><button class="skip-item-button ${isNotNeeded ? "restore" : ""}" type="button" data-skip-item="${item.itemId}" aria-label="${isNotNeeded ? "Restore" : "Mark as not needed"} ${escapeHtml(item.name)}">${isNotNeeded ? "Restore" : "Skip"}</button>${item.hasExtra ? `<button class="remove-extra-button" type="button" data-remove-extra="${item.itemId}" aria-label="Remove added ${escapeHtml(item.name)}">×</button>` : ""}</span>
       </div>`;
     }).join("");
     html += `</div></section>`;
@@ -646,9 +655,36 @@ function removeExtraItem(itemId) {
 
 function toggleShoppingItem(itemId) {
   const week = getWeek();
+  const notNeeded = new Set(week.notNeededItemIds);
+  if (notNeeded.has(itemId)) {
+    notNeeded.delete(itemId);
+    week.notNeededItemIds = Array.from(notNeeded);
+    week.updatedAt = new Date().toISOString();
+    saveData();
+    renderShop();
+    showToast("Back on the list");
+    return;
+  }
   const set = new Set(week.checkedItemIds);
   if (set.has(itemId)) set.delete(itemId); else set.add(itemId);
   week.checkedItemIds = Array.from(set);
+  week.updatedAt = new Date().toISOString();
+  saveData();
+  renderShop();
+}
+
+function toggleNotNeededItem(itemId) {
+  const week = getWeek();
+  const skipped = new Set(week.notNeededItemIds);
+  if (skipped.has(itemId)) {
+    skipped.delete(itemId);
+    showToast("Back on the list");
+  } else {
+    skipped.add(itemId);
+    week.checkedItemIds = week.checkedItemIds.filter(id => id !== itemId);
+    showToast("Marked as not needed");
+  }
+  week.notNeededItemIds = Array.from(skipped);
   week.updatedAt = new Date().toISOString();
   saveData();
   renderShop();
@@ -684,6 +720,7 @@ function addShopItem(event) {
   if (existing && !existing.qty && !existing.unit) { existing.qty = qty; existing.unit = unit; }
   else if (!existing) week.extras.push({ id: uid("extra"), itemId: item.id, qty, unit });
   week.checkedItemIds = week.checkedItemIds.filter(id => id !== item.id);
+  week.notNeededItemIds = week.notNeededItemIds.filter(id => id !== item.id);
   week.updatedAt = new Date().toISOString();
   saveData();
   closeOverlay("shop-item-overlay");
@@ -704,6 +741,7 @@ function toggleRegularForWeek(itemId) {
   if (set.has(itemId)) set.delete(itemId); else set.add(itemId);
   week.regularItemIds = Array.from(set);
   week.checkedItemIds = week.checkedItemIds.filter(id => id !== itemId);
+  week.notNeededItemIds = week.notNeededItemIds.filter(id => id !== itemId);
   week.updatedAt = new Date().toISOString();
   saveData();
   renderRegularPicker();
@@ -800,6 +838,8 @@ function bindEvents() {
     if (edit) return openMealEditor(edit.dataset.editMeal);
     const removeExtra = event.target.closest("[data-remove-extra]");
     if (removeExtra) return removeExtraItem(removeExtra.dataset.removeExtra);
+    const skipItem = event.target.closest("[data-skip-item]");
+    if (skipItem) return toggleNotNeededItem(skipItem.dataset.skipItem);
     const check = event.target.closest("[data-check-item]");
     if (check) return toggleShoppingItem(check.dataset.checkItem);
     const regularPick = event.target.closest("[data-regular-pick]");
@@ -828,7 +868,8 @@ function bindEvents() {
   $("#settings-form").addEventListener("submit", saveWeekSettings);
   $("#today-week").addEventListener("click", () => { selectedWeekStart = startOfWeek(new Date(), data.settings.weekStartDay); renderWeek(); renderShop(); });
   $("#week-to-shop").addEventListener("click", () => switchTab("shop"));
-  $("#clear-day").addEventListener("click", () => chooseMealForDay(NO_MEAL));
+  $("#clear-day").addEventListener("click", () => chooseMealForDay(null));
+  $("#no-dinner").addEventListener("click", () => chooseMealForDay(NO_MEAL));
   $("#picker-search").addEventListener("input", renderPicker);
   $("#meal-search").addEventListener("input", renderMeals);
   $("#add-meal").addEventListener("click", () => openMealEditor());

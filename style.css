@@ -266,6 +266,9 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
   gap: 9px;
   transition: opacity .12s ease, transform .12s ease;
 }
+.shop-item-row.not-needed { opacity: .42; }
+.shop-item-row.not-needed .check-circle { color: var(--gh-muted); border-color: var(--gh-line); background: var(--gh-surface-2); }
+.shop-item-row.not-needed .shop-item-name { text-decoration: none; }
 .check-circle {
   width: 28px;
   height: 28px;
@@ -374,6 +377,12 @@ body.modal-open { overflow: hidden; }
 .picker-row span { font-size: 11px; color: var(--gh-muted); }
 .danger-quiet-button { min-height: 44px; margin-top: 11px; padding: 8px 11px; background: transparent; color: var(--danger); border: 1.5px solid color-mix(in srgb, var(--danger) 42%, transparent); }
 .danger-quiet-button.left { margin: 0; }
+.picker-clear-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 11px; }
+.picker-clear-actions .picker-clear-button,
+.picker-clear-actions .picker-no-meal-button { min-height: 44px; margin-top: 0; }
+.picker-clear-actions .picker-no-meal-button[hidden] { display: none; }
+.picker-clear-actions:has(.picker-no-meal-button[hidden]) { grid-template-columns: 1fr; }
+
 
 .field-label { display: block; margin: 0 0 5px; color: var(--gh-muted); font-size: 11px; font-weight: 780; }
 .text-input {
@@ -489,4 +498,26 @@ body.modal-open { overflow: hidden; }
   color: var(--danger);
   font-size: 20px;
   line-height: 1;
+}
+
+
+/* v1.0.3: recoverable not-needed shopping state */
+.skipped-count { color: var(--gh-muted); }
+.skip-item-button {
+  min-width: 42px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--gh-line);
+  border-radius: 9px;
+  background: var(--gh-surface-2);
+  color: var(--gh-muted);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+}
+.skip-item-button.restore { color: var(--gh-ink); background: var(--gh-surface); }
+@media (max-width: 380px) {
+  .shop-item-tail { gap: 3px; }
+  .skip-item-button { min-width: 38px; padding: 0 6px; font-size: 9px; }
+  .shop-item-qty { max-width: 75px; }
 }
