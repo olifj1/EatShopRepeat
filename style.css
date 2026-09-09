@@ -597,13 +597,17 @@ body.modal-open { overflow: hidden; }
   white-space: nowrap;
 }
 .audience-control:active { background: rgba(37,43,51,.05); }
-.audience-control-label { line-height: 1; }
-.audience-chevron {
-  margin-top: -2px;
-  color: var(--gh-muted);
-  font-size: 13px;
-  font-weight: 900;
+.audience-control-label {
+  display: flex;
+  align-items: center;
   line-height: 1;
+}
+.audience-chevron {
+  width: 11px;
+  height: 7px;
+  display: block;
+  flex: 0 0 auto;
+  color: var(--gh-muted);
 }
 .audience {
   min-width: 0;
@@ -653,7 +657,7 @@ body.modal-open { overflow: hidden; }
 .split-assignment-row {
   width: 100%;
   min-height: 39px;
-  padding: 4px 3px 4px 5px;
+  padding: 4px 3px 4px 0;
   border: 0;
   border-top: 1px solid rgba(37,43,51,.09);
   background: transparent;
@@ -668,7 +672,8 @@ body.modal-open { overflow: hidden; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: 15px;
+  line-height: 1.18;
 }
 .split-assignment-row .slot-arrow { font-size: 18px; }
 

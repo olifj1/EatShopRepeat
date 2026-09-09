@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.9";
+const APP_VERSION = "1.0.10";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -647,7 +647,7 @@ function audienceControlMarkup(memberIds, slotType, dayIndex) {
   const content = all
     ? `<span class="audience-control-label">All</span>`
     : `<span class="audience-avatars">${info.members.slice(0, 4).map(member => memberAvatar(member, true)).join("")}</span>`;
-  return `<button class="audience-control" type="button" data-split-slot="${slotType}" data-day-index="${dayIndex}" aria-label="Choose who has this ${slotType}" title="${escapeHtml(info.label)}">${content}<span class="audience-chevron" aria-hidden="true">⌄</span></button>`;
+  return `<button class="audience-control" type="button" data-split-slot="${slotType}" data-day-index="${dayIndex}" aria-label="Choose who has this ${slotType}" title="${escapeHtml(info.label)}">${content}<svg class="audience-chevron" viewBox="0 0 12 8" aria-hidden="true"><path d="M1.5 1.5 6 6l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
 }
 
 function mealPeriodMarkup(slotType, dayIndex, assignments) {
