@@ -1,9 +1,13 @@
-# Meal Planner v1.0.6
+# Meal Planner v1.0.8
 
-Adds a simple way to move a meal plan when it was created against the wrong week.
+Household foundation release.
 
-- Week settings now includes **Move this week’s plan**.
-- Choose any date in the destination week; Meal Planner snaps it to your configured week start day.
-- Dinners and optional lunches are moved together and cleared from the original week.
-- If the destination already contains meals, Meal Planner asks before replacing them.
-- Regulars, one-off shopping items and bought/not-needed state stay with their original weeks.
+- Add/edit household members with adult/child roles, visual colours and app-user flags.
+- Mark which app user a particular Safari/Home Screen copy represents.
+- Split a dinner or lunch so different household members can have different meals.
+- Share/import household snapshots containing people, meals, plans, regulars and shopping state.
+- Snapshot imports merge newer records and independent week-plan/shopping fields rather than blindly replacing the whole app.
+- Keeps lightweight week sharing and full backup/restore as secondary tools.
+- Migrates existing v1.x plans into the household-aware data structure without clearing them.
+
+This remains fully local/offline and server-free. The household IDs, member identities, timestamps and merge model are groundwork for later automatic Firebase sync.

@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.6";
+const APP_VERSION = "1.0.8";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -17,6 +17,8 @@ const UNITS = ["", "pack", "packs", "g", "kg", "ml", "l", "pint", "pints", "tbsp
 const NO_MEAL = "__none__";
 const DEFAULT_WEEK_START_DAY = 5; // Friday
 const BUNDLED_CONTENT_VERSION = 1;
+const SCHEMA_VERSION = 4;
+const MEMBER_COLORS = ["sage", "terracotta", "blue", "gold", "rose", "plum"];
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => Array.from(document.querySelectorAll(selector));
@@ -85,30 +87,117 @@ function emptyWeek(startKey) {
   const now = new Date().toISOString();
   return {
     startDate: startKey,
+    slots: {
+      dinner: Array.from({ length: 7 }, () => []),
+      lunch: Array.from({ length: 7 }, () => [])
+    },
+    // Legacy mirrors are retained for backup compatibility with older builds.
     meals: Array(7).fill(null),
     lunches: Array(7).fill(null),
     regularItemIds: [],
     extras: [],
     checkedItemIds: [],
     notNeededItemIds: [],
+    fieldUpdatedAt: {
+      dinner: Array(7).fill(null),
+      lunch: Array(7).fill(null),
+      regularItemIds: null,
+      extras: null,
+      checkedItemIds: null,
+      notNeededItemIds: null
+    },
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    updatedBy: null
+  };
+}
+
+function makeAssignment(mealId, memberIds = null, updatedAt = new Date().toISOString(), id = null, updatedBy = null) {
+  return {
+    id: id || uid("assign"),
+    mealId,
+    memberIds: Array.isArray(memberIds) ? Array.from(new Set(memberIds.filter(Boolean))) : null,
+    createdAt: updatedAt,
+    updatedAt,
+    updatedBy: updatedBy || null
+  };
+}
+
+function normaliseAssignment(raw, fallbackUpdatedAt) {
+  if (!raw || typeof raw !== "object" || !raw.mealId) return null;
+  const stamp = raw.updatedAt || fallbackUpdatedAt || new Date().toISOString();
+  return {
+    id: raw.id || uid("assign"),
+    mealId: raw.mealId,
+    memberIds: Array.isArray(raw.memberIds) ? Array.from(new Set(raw.memberIds.filter(Boolean))) : null,
+    createdAt: raw.createdAt || stamp,
+    updatedAt: stamp,
+    updatedBy: raw.updatedBy || null
   };
 }
 
 function normaliseWeek(week, key) {
   const clean = week && typeof week === "object" ? week : {};
   clean.startDate = clean.startDate || clean.monday || key;
-  clean.meals = Array.isArray(clean.meals) ? [...clean.meals, ...Array(7).fill(null)].slice(0, 7) : Array(7).fill(null);
-  clean.lunches = Array.isArray(clean.lunches) ? [...clean.lunches, ...Array(7).fill(null)].slice(0, 7) : Array(7).fill(null);
+  clean.createdAt = clean.createdAt || new Date().toISOString();
+  clean.updatedAt = clean.updatedAt || clean.createdAt;
+  clean.updatedBy = clean.updatedBy || null;
+
+  const legacyMeals = Array.isArray(clean.meals) ? [...clean.meals, ...Array(7).fill(null)].slice(0, 7) : Array(7).fill(null);
+  const legacyLunches = Array.isArray(clean.lunches) ? [...clean.lunches, ...Array(7).fill(null)].slice(0, 7) : Array(7).fill(null);
+  const rawSlots = clean.slots && typeof clean.slots === "object" ? clean.slots : {};
+
+  const normalisePeriod = (rawPeriod, legacy) => Array.from({ length: 7 }, (_, index) => {
+    if (Array.isArray(rawPeriod?.[index])) return rawPeriod[index].map(raw => normaliseAssignment(raw, clean.updatedAt)).filter(Boolean);
+    const mealId = legacy[index];
+    return mealId ? [makeAssignment(mealId, null, clean.updatedAt, null, clean.updatedBy)] : [];
+  });
+
+  clean.slots = {
+    dinner: normalisePeriod(rawSlots.dinner, legacyMeals),
+    lunch: normalisePeriod(rawSlots.lunch, legacyLunches)
+  };
   clean.regularItemIds = Array.isArray(clean.regularItemIds) ? clean.regularItemIds : [];
   clean.extras = Array.isArray(clean.extras) ? clean.extras : [];
   clean.checkedItemIds = Array.isArray(clean.checkedItemIds) ? clean.checkedItemIds : [];
   clean.notNeededItemIds = Array.isArray(clean.notNeededItemIds) ? clean.notNeededItemIds : [];
-  clean.createdAt = clean.createdAt || new Date().toISOString();
-  clean.updatedAt = clean.updatedAt || clean.createdAt;
+
+  const rawField = clean.fieldUpdatedAt && typeof clean.fieldUpdatedAt === "object" ? clean.fieldUpdatedAt : {};
+  const periodStamps = (slotType) => Array.from({ length: 7 }, (_, index) => {
+    const stamp = Array.isArray(rawField[slotType]) ? rawField[slotType][index] : null;
+    if (stamp) return stamp;
+    return clean.slots[slotType][index].length ? clean.updatedAt : null;
+  });
+  clean.fieldUpdatedAt = {
+    dinner: periodStamps("dinner"),
+    lunch: periodStamps("lunch"),
+    regularItemIds: rawField.regularItemIds || (clean.regularItemIds.length ? clean.updatedAt : null),
+    extras: rawField.extras || (clean.extras.length ? clean.updatedAt : null),
+    checkedItemIds: rawField.checkedItemIds || (clean.checkedItemIds.length ? clean.updatedAt : null),
+    notNeededItemIds: rawField.notNeededItemIds || (clean.notNeededItemIds.length ? clean.updatedAt : null)
+  };
+  syncLegacyWeekSlots(clean);
   delete clean.monday;
   return clean;
+}
+
+function syncLegacyWeekSlots(week) {
+  const primary = assignments => {
+    if (!assignments?.length) return null;
+    if (assignments.length === 1) return assignments[0].mealId || null;
+    return assignments[0]?.mealId || null;
+  };
+  week.meals = Array.from({ length: 7 }, (_, index) => primary(week.slots?.dinner?.[index]));
+  week.lunches = Array.from({ length: 7 }, (_, index) => primary(week.slots?.lunch?.[index]));
+  return week;
+}
+
+function getSlotAssignments(week, slotType, dayIndex) {
+  const period = slotType === "lunch" ? "lunch" : "dinner";
+  if (!week.slots) week.slots = { dinner: Array.from({ length: 7 }, () => []), lunch: Array.from({ length: 7 }, () => []) };
+  if (!Array.isArray(week.slots[period])) week.slots[period] = Array.from({ length: 7 }, () => []);
+  if (!Array.isArray(week.slots[period][dayIndex])) week.slots[period][dayIndex] = [];
+  return week.slots[period][dayIndex];
 }
 
 function rebaseWeekMap(weeks, oldStartDay, newStartDay) {
@@ -123,14 +212,17 @@ function rebaseWeekMap(weeks, oldStartDay, newStartDay) {
     const week = normaliseWeek(clone(rawWeek), key);
     const sourceStart = fromDateKey(week.startDate || key);
 
-    ["meals", "lunches"].forEach(slotName => {
-      week[slotName].forEach((mealId, index) => {
-        if (mealId === null || mealId === undefined) return;
+    ["dinner", "lunch"].forEach(slotName => {
+      week.slots[slotName].forEach((assignments, index) => {
+        if (!assignments?.length) return;
         const date = addDays(sourceStart, index);
         const targetStart = startOfWeek(date, newStartDay);
         const target = ensureTarget(targetStart);
         const targetIndex = dateDistance(targetStart, date);
-        if (targetIndex >= 0 && targetIndex < 7) target[slotName][targetIndex] = mealId;
+        if (targetIndex >= 0 && targetIndex < 7) {
+          target.slots[slotName][targetIndex] = clone(assignments);
+          target.fieldUpdatedAt[slotName][targetIndex] = week.fieldUpdatedAt?.[slotName]?.[index] || week.updatedAt;
+        }
       });
     });
 
@@ -139,6 +231,9 @@ function rebaseWeekMap(weeks, oldStartDay, newStartDay) {
     shoppingTarget.regularItemIds = Array.from(new Set([...shoppingTarget.regularItemIds, ...week.regularItemIds]));
     shoppingTarget.checkedItemIds = Array.from(new Set([...shoppingTarget.checkedItemIds, ...week.checkedItemIds]));
     shoppingTarget.notNeededItemIds = Array.from(new Set([...shoppingTarget.notNeededItemIds, ...week.notNeededItemIds]));
+    if (week.regularItemIds.length) shoppingTarget.fieldUpdatedAt.regularItemIds = week.fieldUpdatedAt?.regularItemIds || week.updatedAt;
+    if (week.checkedItemIds.length) shoppingTarget.fieldUpdatedAt.checkedItemIds = week.fieldUpdatedAt?.checkedItemIds || week.updatedAt;
+    if (week.notNeededItemIds.length) shoppingTarget.fieldUpdatedAt.notNeededItemIds = week.fieldUpdatedAt?.notNeededItemIds || week.updatedAt;
     const existingExtraIds = new Set(shoppingTarget.extras.map(extra => extra.id));
     week.extras.forEach(extra => {
       if (!existingExtraIds.has(extra.id)) {
@@ -146,9 +241,14 @@ function rebaseWeekMap(weeks, oldStartDay, newStartDay) {
         existingExtraIds.add(extra.id);
       }
     });
-    shoppingTarget.updatedAt = week.updatedAt || shoppingTarget.updatedAt;
+    if (week.extras.length) shoppingTarget.fieldUpdatedAt.extras = week.fieldUpdatedAt?.extras || week.updatedAt;
+    if (String(week.updatedAt) > String(shoppingTarget.updatedAt)) {
+      shoppingTarget.updatedAt = week.updatedAt;
+      shoppingTarget.updatedBy = week.updatedBy || null;
+    }
   });
 
+  Object.values(rebased).forEach(syncLegacyWeekSlots);
   return rebased;
 }
 
@@ -257,16 +357,51 @@ function seedData() {
     { id: "meal_roast", name: "Roast chicken", ingredients: [ingredient("wholechicken", 1), ingredient("potatoes", 1, "kg"), ingredient("carrots", 1, "pack"), ingredient("peas", 1, "pack"), ingredient("gravy")], createdAt: now, updatedAt: now, lastUsedAt: null }
   ];
 
+  const household = createEmptyHousehold();
   const seeded = {
-    schemaVersion: 3,
+    schemaVersion: SCHEMA_VERSION,
     appVersion: APP_VERSION,
     bundledContentVersion: 0,
+    household,
     items,
     meals,
     weeks: {},
-    settings: { hideChecked: false, lastTab: "week", weekStartDay: DEFAULT_WEEK_START_DAY }
+    settings: { hideChecked: false, lastTab: "week", weekStartDay: DEFAULT_WEEK_START_DAY, currentMemberId: null }
   };
   return applyBundledContent(seeded);
+}
+
+function createEmptyHousehold() {
+  const now = new Date().toISOString();
+  return {
+    id: uid("household"),
+    name: "Our household",
+    weekStartDay: DEFAULT_WEEK_START_DAY,
+    members: [],
+    createdAt: now,
+    updatedAt: now,
+    updatedBy: null,
+    dataUpdatedAt: now,
+    dataUpdatedBy: null
+  };
+}
+
+function normaliseMember(member, index = 0) {
+  if (!member || typeof member !== "object") return null;
+  const name = normaliseName(member.name);
+  if (!name) return null;
+  const now = new Date().toISOString();
+  return {
+    id: member.id || uid("member"),
+    name,
+    role: member.role === "child" ? "child" : "adult",
+    appUser: !!member.appUser,
+    color: MEMBER_COLORS.includes(member.color) ? member.color : MEMBER_COLORS[index % MEMBER_COLORS.length],
+    createdAt: member.createdAt || member.updatedAt || now,
+    updatedAt: member.updatedAt || member.createdAt || now,
+    updatedBy: member.updatedBy || null,
+    deletedAt: member.deletedAt || null
+  };
 }
 
 function prepareDataObject(parsed) {
@@ -280,16 +415,52 @@ function prepareDataObject(parsed) {
   const oldStartDay = hadWeekStartSetting ? Number(clean.settings.weekStartDay) : 1;
   const weekStartDay = hadWeekStartSetting ? Number(clean.settings.weekStartDay) : DEFAULT_WEEK_START_DAY;
 
+  if (!clean.household || typeof clean.household !== "object") clean.household = createEmptyHousehold();
+  clean.household.id = clean.household.id || uid("household");
+  clean.household.name = normaliseName(clean.household.name) || "Our household";
+  clean.household.weekStartDay = Number.isInteger(Number(clean.household.weekStartDay)) ? Number(clean.household.weekStartDay) : weekStartDay;
+  clean.household.members = Array.isArray(clean.household.members)
+    ? clean.household.members.map(normaliseMember).filter(Boolean)
+    : [];
+  clean.household.createdAt = clean.household.createdAt || new Date().toISOString();
+  clean.household.updatedAt = clean.household.updatedAt || clean.household.createdAt;
+  clean.household.updatedBy = clean.household.updatedBy || null;
+  clean.household.dataUpdatedAt = clean.household.dataUpdatedAt || clean.household.updatedAt;
+  clean.household.dataUpdatedBy = clean.household.dataUpdatedBy || clean.household.updatedBy || null;
+
   clean.weeks = clean.weeks && typeof clean.weeks === "object" ? clean.weeks : {};
   if (oldSchema < 2 || !hadWeekStartSetting) {
-    clean.weeks = rebaseWeekMap(clean.weeks, oldStartDay, weekStartDay);
+    clean.weeks = rebaseWeekMap(clean.weeks, oldStartDay, clean.household.weekStartDay);
   } else {
     Object.entries(clean.weeks).forEach(([key, week]) => { clean.weeks[key] = normaliseWeek(week, key); });
   }
 
-  clean.schemaVersion = 3;
+  clean.items = clean.items.map(item => ({
+    ...item,
+    createdAt: item.createdAt || item.updatedAt || new Date().toISOString(),
+    updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
+    updatedBy: item.updatedBy || null,
+    deletedAt: item.deletedAt || null
+  }));
+  clean.meals = clean.meals.map(meal => ({
+    ...meal,
+    createdAt: meal.createdAt || meal.updatedAt || new Date().toISOString(),
+    updatedAt: meal.updatedAt || meal.createdAt || new Date().toISOString(),
+    updatedBy: meal.updatedBy || null,
+    deletedAt: meal.deletedAt || null
+  }));
+
+  clean.schemaVersion = SCHEMA_VERSION;
   clean.appVersion = APP_VERSION;
-  clean.settings = { hideChecked: false, lastTab: "week", weekStartDay: DEFAULT_WEEK_START_DAY, ...(clean.settings || {}), weekStartDay };
+  clean.settings = {
+    hideChecked: false,
+    lastTab: "week",
+    weekStartDay: clean.household.weekStartDay,
+    currentMemberId: null,
+    ...(clean.settings || {}),
+    weekStartDay: clean.household.weekStartDay
+  };
+  if (!activeMembers(clean).some(member => member.id === clean.settings.currentMemberId && member.appUser)) clean.settings.currentMemberId = null;
   return applyBundledContent(clean);
 }
 
@@ -306,12 +477,49 @@ let data = loadData();
 let selectedWeekStart = startOfWeek(new Date(), data.settings.weekStartDay);
 let pickerDayIndex = null;
 let pickerSlotType = "dinner";
+let pickerAssignmentId = null;
+let pickerMode = "replace";
+let splitDayIndex = null;
+let splitSlotType = "dinner";
+let pendingSplitMemberIds = [];
 let toastTimer = null;
 let deferredInstallPrompt = null;
 
+function currentMemberId() {
+  return data?.settings?.currentMemberId || null;
+}
+
+function touchSharedState(stamp = new Date().toISOString(), by = currentMemberId()) {
+  if (!data?.household) return stamp;
+  data.household.dataUpdatedAt = stamp;
+  data.household.dataUpdatedBy = by || null;
+  return stamp;
+}
+
+function touchRecord(record, stamp = new Date().toISOString()) {
+  if (!record) return stamp;
+  record.updatedAt = stamp;
+  record.updatedBy = currentMemberId();
+  touchSharedState(stamp, record.updatedBy);
+  return stamp;
+}
+
+function touchWeekField(week, field, index = null, stamp = new Date().toISOString()) {
+  if (!week.fieldUpdatedAt) normaliseWeek(week, week.startDate || "");
+  if ((field === "dinner" || field === "lunch") && Number.isInteger(Number(index))) {
+    week.fieldUpdatedAt[field][Number(index)] = stamp;
+  } else if (Object.prototype.hasOwnProperty.call(week.fieldUpdatedAt, field)) {
+    week.fieldUpdatedAt[field] = stamp;
+  }
+  touchRecord(week, stamp);
+  return stamp;
+}
+
 function saveData() {
   data.appVersion = APP_VERSION;
-  data.schemaVersion = 3;
+  data.schemaVersion = SCHEMA_VERSION;
+  if (data.household) data.settings.weekStartDay = data.household.weekStartDay;
+  Object.values(data.weeks || {}).forEach(syncLegacyWeekSlots);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
@@ -329,21 +537,26 @@ function getWeek(start = selectedWeekStart) {
   return data.weeks[key];
 }
 
-function findMeal(id) { return data.meals.find(meal => meal.id === id) || null; }
-function findItem(id) { return data.items.find(item => item.id === id) || null; }
-function findItemByName(name) { const key = keyName(name); return data.items.find(item => keyName(item.name) === key) || null; }
+function activeMembers(source = data) { return (source?.household?.members || []).filter(member => !member.deletedAt); }
+function appUserMembers(source = data) { return activeMembers(source).filter(member => member.appUser); }
+function findMember(id) { return activeMembers().find(member => member.id === id) || null; }
+function findMeal(id) { return data.meals.find(meal => meal.id === id && !meal.deletedAt) || null; }
+function findItem(id) { return data.items.find(item => item.id === id && !item.deletedAt) || null; }
+function findItemByName(name) { const key = keyName(name); return data.items.find(item => !item.deletedAt && keyName(item.name) === key) || null; }
 
 function ensureItem(name, category = "Other", regular = false) {
   const clean = normaliseName(name);
   if (!clean) return null;
   let item = findItemByName(clean);
   if (!item) {
-    item = { id: uid("item"), name: clean, category: CATEGORIES.includes(category) ? category : "Other", regular: !!regular, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    item = { id: uid("item"), name: clean, category: CATEGORIES.includes(category) ? category : "Other", regular: !!regular, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null };
     data.items.push(item);
+    touchSharedState(now, item.updatedBy);
   } else {
     if (category && CATEGORIES.includes(category)) item.category = category;
     if (regular) item.regular = true;
-    item.updatedAt = new Date().toISOString();
+    touchRecord(item);
   }
   return item;
 }
@@ -380,33 +593,104 @@ function escapeHtml(value) {
 }
 
 function renderKnownItems() {
-  const names = [...data.items].sort((a, b) => a.name.localeCompare(b.name));
+  const names = data.items.filter(item => !item.deletedAt).sort((a, b) => a.name.localeCompare(b.name));
   const options = names.map(item => `<option value="${escapeHtml(item.name)}"></option>`).join("");
   $("#known-items").innerHTML = options;
   $("#ingredient-known-items").innerHTML = options;
+}
+
+function memberInitials(member) {
+  return normaliseName(member?.name).split(/\s+/).map(part => part[0]).join("").slice(0, 2).toUpperCase() || "?";
+}
+
+function memberAvatar(member, small = false) {
+  if (!member) return "";
+  return `<span class="member-avatar ${small ? "small" : ""} member-${escapeHtml(member.color)}" title="${escapeHtml(member.name)}">${escapeHtml(memberInitials(member))}</span>`;
+}
+
+function audienceInfo(memberIds) {
+  const members = activeMembers();
+  if (!members.length || memberIds === null) return { label: "Everyone", members };
+  const ids = new Set(memberIds || []);
+  const selected = members.filter(member => ids.has(member.id));
+  if (selected.length === members.length) return { label: "Everyone", members: selected };
+  const adults = members.filter(member => member.role === "adult");
+  const kids = members.filter(member => member.role === "child");
+  const selectedAdults = selected.filter(member => member.role === "adult");
+  const selectedKids = selected.filter(member => member.role === "child");
+  const allAdults = adults.length && selectedAdults.length === adults.length && adults.every(member => ids.has(member.id));
+  const allKids = kids.length && selectedKids.length === kids.length && kids.every(member => ids.has(member.id));
+  if (allAdults && !selectedKids.length) return { label: "Adults", members: selected };
+  if (allKids && !selectedAdults.length) return { label: "Kids", members: selected };
+  if (allAdults && selectedKids.length) {
+    const extra = selectedKids.length === 1 ? selectedKids[0].name : `${selectedKids.length} kids`;
+    return { label: `Adults + ${extra}`, members: selected };
+  }
+  if (allKids && selectedAdults.length) {
+    const extra = selectedAdults.length === 1 ? selectedAdults[0].name : `${selectedAdults.length} adults`;
+    return { label: `Kids + ${extra}`, members: selected };
+  }
+  if (selected.length === 1) return { label: selected[0].name, members: selected };
+  if (selected.length <= 3) return { label: selected.map(member => member.name).join(" + "), members: selected };
+  return { label: `${selected.length} people`, members: selected };
+}
+
+function audienceMarkup(memberIds, compactEveryone = false) {
+  const info = audienceInfo(memberIds);
+  if (compactEveryone && memberIds === null && info.members.length) {
+    return `<span class="audience compact-everyone" title="Everyone">All</span>`;
+  }
+  const avatars = info.members.slice(0, 4).map(member => memberAvatar(member, true)).join("");
+  return `<span class="audience" title="${escapeHtml(info.label)}"><span class="audience-avatars">${avatars}</span><span>${escapeHtml(info.label)}</span></span>`;
+}
+
+function mealPeriodMarkup(slotType, dayIndex, assignments) {
+  const label = slotType === "lunch" ? "Lunch" : "Dinner";
+  if (!assignments.length) {
+    if (slotType === "lunch") return `<button class="add-lunch-button" type="button" data-day-index="${dayIndex}" data-meal-slot="lunch">＋ Lunch</button>`;
+    return `<button class="meal-slot dinner empty" type="button" data-day-index="${dayIndex}" data-meal-slot="dinner"><span class="slot-label">Dinner</span><strong>Choose meal</strong><span class="slot-arrow" aria-hidden="true">›</span></button>`;
+  }
+
+  if (assignments.length === 1) {
+    const assignment = assignments[0];
+    const noMeal = assignment.mealId === NO_MEAL;
+    const meal = noMeal ? null : findMeal(assignment.mealId);
+    const name = meal ? meal.name : noMeal ? "No meal / eating out" : "Choose meal";
+    const canSplit = !noMeal && activeMembers().length > 1;
+    return `<div class="meal-period single ${slotType}">
+      <button class="meal-slot ${slotType} ${meal || noMeal ? "" : "empty"}" type="button" data-day-index="${dayIndex}" data-meal-slot="${slotType}" data-assignment-id="${escapeHtml(assignment.id)}">
+        <span class="slot-label">${label}</span><strong>${escapeHtml(name)}</strong>${meal ? audienceMarkup(assignment.memberIds, true) : ""}<span class="slot-arrow" aria-hidden="true">›</span>
+      </button>
+      ${canSplit ? `<button class="split-meal-button" type="button" data-split-slot="${slotType}" data-day-index="${dayIndex}">Split</button>` : ""}
+    </div>`;
+  }
+
+  const rows = assignments.map(assignment => {
+    const meal = findMeal(assignment.mealId);
+    if (!meal) return "";
+    return `<button class="split-assignment-row" type="button" data-day-index="${dayIndex}" data-meal-slot="${slotType}" data-assignment-id="${escapeHtml(assignment.id)}">
+      <strong>${escapeHtml(meal.name)}</strong>${audienceMarkup(assignment.memberIds)}<span class="slot-arrow" aria-hidden="true">›</span>
+    </button>`;
+  }).join("");
+  return `<div class="meal-period split ${slotType}">
+    <div class="split-period-heading"><span>${label}</span><span><button type="button" data-split-slot="${slotType}" data-day-index="${dayIndex}">＋ Different</button><button type="button" class="unsplit-button" data-unsplit-slot="${slotType}" data-day-index="${dayIndex}">Unsplit</button></span></div>
+    ${rows}
+  </div>`;
 }
 
 function renderWeek() {
   const week = getWeek();
   const todayKey = localDateKey(new Date());
   $("#week-range").textContent = formatWeekRange(selectedWeekStart);
-  $("#week-list").innerHTML = week.meals.map((mealId, index) => {
+  $("#week-list").innerHTML = Array.from({ length: 7 }, (_, index) => {
     const date = addDays(selectedWeekStart, index);
-    const noDinner = mealId === NO_MEAL;
-    const dinner = noDinner ? null : findMeal(mealId);
-    const lunchId = week.lunches[index];
-    const lunch = lunchId ? findMeal(lunchId) : null;
-    const dinnerName = dinner ? dinner.name : noDinner ? "No meal / eating out" : "Choose meal";
-    const dinnerClass = dinner || noDinner ? "" : "empty";
-    const lunchMarkup = lunch
-      ? `<button class="meal-slot lunch" type="button" data-day-index="${index}" data-meal-slot="lunch"><span class="slot-label">Lunch</span><strong>${escapeHtml(lunch.name)}</strong><span class="slot-arrow" aria-hidden="true">›</span></button>`
-      : `<button class="add-lunch-button" type="button" data-day-index="${index}" data-meal-slot="lunch">＋ Lunch</button>`;
-
+    const dinner = getSlotAssignments(week, "dinner", index);
+    const lunch = getSlotAssignments(week, "lunch", index);
     return `<article class="day-card ${localDateKey(date) === todayKey ? "today" : ""}">
       <div class="day-meta"><strong>${escapeHtml(formatDay(date))}</strong><span>${escapeHtml(formatDateShort(date))}</span></div>
       <div class="day-slots">
-        <button class="meal-slot dinner ${dinnerClass}" type="button" data-day-index="${index}" data-meal-slot="dinner"><span class="slot-label">Dinner</span><strong>${escapeHtml(dinnerName)}</strong><span class="slot-arrow" aria-hidden="true">›</span></button>
-        ${lunchMarkup}
+        ${mealPeriodMarkup("dinner", index, dinner)}
+        ${mealPeriodMarkup("lunch", index, lunch)}
       </div>
     </article>`;
   }).join("");
@@ -420,8 +704,8 @@ function mealUsageText(meal) {
 
 function renderMeals() {
   const query = keyName($("#meal-search").value);
-  const meals = [...data.meals]
-    .filter(meal => !query || keyName(meal.name).includes(query))
+  const meals = data.meals
+    .filter(meal => !meal.deletedAt && (!query || keyName(meal.name).includes(query)))
     .sort((a, b) => a.name.localeCompare(b.name));
   $("#meal-list").innerHTML = meals.length ? meals.map(meal => {
     const names = meal.ingredients.slice(0, 4).map(ing => findItem(ing.itemId)?.name).filter(Boolean).join(", ");
@@ -434,9 +718,9 @@ function renderMeals() {
 
 function renderPicker() {
   const query = keyName($("#picker-search").value);
-  const recent = [...data.meals].filter(meal => meal.lastUsedAt).sort((a, b) => String(b.lastUsedAt).localeCompare(String(a.lastUsedAt))).slice(0, 4);
+  const recent = data.meals.filter(meal => !meal.deletedAt && meal.lastUsedAt).sort((a, b) => String(b.lastUsedAt).localeCompare(String(a.lastUsedAt))).slice(0, 4);
   const recentIds = new Set(recent.map(meal => meal.id));
-  const all = [...data.meals].sort((a, b) => a.name.localeCompare(b.name));
+  const all = data.meals.filter(meal => !meal.deletedAt).sort((a, b) => a.name.localeCompare(b.name));
   const matches = meal => !query || keyName(meal.name).includes(query);
   let html = "";
   if (!query && recent.length) {
@@ -455,29 +739,88 @@ function pickerRow(meal) {
   return `<button class="picker-row" type="button" data-pick-meal="${meal.id}"><strong>${escapeHtml(meal.name)}</strong><span>${meal.ingredients.length} item${meal.ingredients.length === 1 ? "" : "s"}</span></button>`;
 }
 
-function openMealPicker(dayIndex, slotType = "dinner") {
+function openMealPicker(dayIndex, slotType = "dinner", assignmentId = null, mode = "replace") {
   pickerDayIndex = Number(dayIndex);
   pickerSlotType = slotType === "lunch" ? "lunch" : "dinner";
+  pickerAssignmentId = assignmentId || null;
+  pickerMode = mode;
   const date = addDays(selectedWeekStart, pickerDayIndex);
   const slotLabel = pickerSlotType === "lunch" ? "Lunch" : "Dinner";
-  $("#meal-picker-title").textContent = `${formatDayLong(date)} ${slotLabel.toLowerCase()} · ${formatDateShort(date)}`;
-  $("#clear-day").textContent = pickerSlotType === "lunch" ? "Remove lunch" : "Clear dinner";
-  $("#no-dinner").hidden = pickerSlotType === "lunch";
+  const suffix = pickerMode === "split-new" && pendingSplitMemberIds.length ? ` for ${audienceInfo(pendingSplitMemberIds).label}` : "";
+  $("#meal-picker-title").textContent = `${formatDayLong(date)} ${slotLabel.toLowerCase()}${suffix} · ${formatDateShort(date)}`;
+  const week = getWeek();
+  const assignments = getSlotAssignments(week, pickerSlotType, pickerDayIndex);
+  const editingSplitAssignment = !!pickerAssignmentId && assignments.length > 1;
+  $("#clear-day").textContent = editingSplitAssignment ? "Remove this meal" : (pickerSlotType === "lunch" ? "Remove lunch" : "Clear dinner");
+  $("#no-dinner").hidden = pickerSlotType === "lunch" || editingSplitAssignment || pickerMode === "split-new";
   $("#picker-search").value = "";
   renderPicker();
   openOverlay("meal-picker-overlay");
 }
 
+function normaliseSplitSlot(assignments) {
+  const members = activeMembers();
+  const activeIds = new Set(members.map(member => member.id));
+  const clean = assignments
+    .filter(assignment => assignment && assignment.mealId)
+    .map(assignment => ({
+      ...assignment,
+      memberIds: assignment.memberIds === null ? null : Array.from(new Set((assignment.memberIds || []).filter(id => activeIds.has(id))))
+    }))
+    .filter(assignment => assignment.memberIds === null || assignment.memberIds.length);
+  if (clean.length === 1 && members.length) {
+    const ids = clean[0].memberIds;
+    if (ids === null || (ids.length === members.length && members.every(member => ids.includes(member.id)))) clean[0].memberIds = null;
+  }
+  return clean;
+}
+
 function chooseMealForDay(mealId) {
   const week = getWeek();
-  if (pickerSlotType === "lunch") {
-    week.lunches[pickerDayIndex] = mealId === NO_MEAL ? null : (mealId || null);
+  const assignments = getSlotAssignments(week, pickerSlotType, pickerDayIndex);
+  const now = new Date().toISOString();
+
+  if (pickerMode === "split-new") {
+    if (!mealId || mealId === NO_MEAL || !pendingSplitMemberIds.length) return;
+    const selected = new Set(pendingSplitMemberIds);
+    const allIds = activeMembers().map(member => member.id);
+    let next = assignments.map(assignment => {
+      const explicitIds = assignment.memberIds === null ? allIds : assignment.memberIds;
+      return { ...assignment, memberIds: explicitIds.filter(id => !selected.has(id)), updatedAt: now, updatedBy: currentMemberId() };
+    }).filter(assignment => assignment.memberIds.length);
+    next.push(makeAssignment(mealId, pendingSplitMemberIds, now, null, currentMemberId()));
+    week.slots[pickerSlotType][pickerDayIndex] = normaliseSplitSlot(next);
+    pendingSplitMemberIds = [];
+  } else if (pickerAssignmentId) {
+    const index = assignments.findIndex(assignment => assignment.id === pickerAssignmentId);
+    if (index >= 0) {
+      if (!mealId) {
+        if (assignments.length > 1) {
+          const keep = assignments.filter((_, assignmentIndex) => assignmentIndex !== index);
+          if (keep.length === 1) keep[0].memberIds = null;
+          week.slots[pickerSlotType][pickerDayIndex] = keep;
+        } else {
+          week.slots[pickerSlotType][pickerDayIndex] = [];
+        }
+      } else {
+        assignments[index].mealId = mealId;
+        assignments[index].updatedAt = now;
+        assignments[index].updatedBy = currentMemberId();
+      }
+    }
+  } else if (!mealId) {
+    week.slots[pickerSlotType][pickerDayIndex] = [];
   } else {
-    week.meals[pickerDayIndex] = mealId === NO_MEAL ? NO_MEAL : (mealId || null);
+    week.slots[pickerSlotType][pickerDayIndex] = [makeAssignment(mealId, null, now, null, currentMemberId())];
   }
-  week.updatedAt = new Date().toISOString();
+
+  touchWeekField(week, pickerSlotType, pickerDayIndex, now);
   const meal = mealId === NO_MEAL ? null : findMeal(mealId);
-  if (meal) meal.lastUsedAt = new Date().toISOString();
+  if (meal) {
+    meal.lastUsedAt = now;
+    touchRecord(meal, now);
+  }
+  syncLegacyWeekSlots(week);
   saveData();
   closeOverlay("meal-picker-overlay");
   renderAll();
@@ -532,9 +875,10 @@ function saveMealFromForm(event) {
     if (!meal) return;
     meal.name = name;
     meal.ingredients = ingredients;
-    meal.updatedAt = now;
+    touchRecord(meal, now);
   } else {
-    data.meals.push({ id: uid("meal"), name, ingredients, createdAt: now, updatedAt: now, lastUsedAt: null });
+    data.meals.push({ id: uid("meal"), name, ingredients, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null });
+    touchSharedState(now);
   }
   saveData();
   closeOverlay("meal-editor-overlay");
@@ -546,10 +890,19 @@ function deleteCurrentMeal() {
   const id = $("#meal-id").value;
   const meal = findMeal(id);
   if (!meal || !confirm(`Delete “${meal.name}”?`)) return;
-  data.meals = data.meals.filter(entry => entry.id !== id);
+  const now = new Date().toISOString();
+  meal.deletedAt = now;
+  touchRecord(meal, now);
   Object.values(data.weeks).forEach(week => {
-    if (Array.isArray(week.meals)) week.meals = week.meals.map(mealId => mealId === id ? null : mealId);
-    if (Array.isArray(week.lunches)) week.lunches = week.lunches.map(mealId => mealId === id ? null : mealId);
+    week = normaliseWeek(week, week.startDate);
+    ["dinner", "lunch"].forEach(slotType => {
+      week.slots[slotType] = week.slots[slotType].map((assignments, dayIndex) => {
+        const next = assignments.filter(assignment => assignment.mealId !== id);
+        if (next.length !== assignments.length) touchWeekField(week, slotType, dayIndex, now);
+        return next;
+      });
+    });
+    syncLegacyWeekSlots(week);
   });
   saveData();
   closeOverlay("meal-editor-overlay");
@@ -579,13 +932,14 @@ function consolidateShopping() {
     if (source) entry.sources.add(source);
   };
 
-  week.meals.forEach(mealId => {
-    const meal = findMeal(mealId);
-    meal?.ingredients.forEach(ing => push({ ...ing, source: meal.name }));
-  });
-  week.lunches.forEach(mealId => {
-    const meal = findMeal(mealId);
-    meal?.ingredients.forEach(ing => push({ ...ing, source: meal.name }));
+  ["dinner", "lunch"].forEach(slotType => {
+    week.slots[slotType].forEach(assignments => {
+      const mealIds = new Set(assignments.map(assignment => assignment.mealId).filter(id => id && id !== NO_MEAL));
+      mealIds.forEach(mealId => {
+        const meal = findMeal(mealId);
+        meal?.ingredients.forEach(ing => push({ ...ing, source: meal.name }));
+      });
+    });
   });
   week.regularItemIds.forEach(itemId => push({ itemId, source: "Regular" }));
   week.extras.forEach(extra => push({ ...extra, source: "Added" }));
@@ -654,7 +1008,7 @@ function renderShop() {
 function removeExtraItem(itemId) {
   const week = getWeek();
   week.extras = week.extras.filter(extra => extra.itemId !== itemId);
-  week.updatedAt = new Date().toISOString();
+  touchWeekField(week, "extras");
   saveData();
   renderShop();
   showToast("Removed added item");
@@ -666,7 +1020,7 @@ function toggleShoppingItem(itemId) {
   if (notNeeded.has(itemId)) {
     notNeeded.delete(itemId);
     week.notNeededItemIds = Array.from(notNeeded);
-    week.updatedAt = new Date().toISOString();
+    touchWeekField(week, "notNeededItemIds");
     saveData();
     renderShop();
     showToast("Back on the list");
@@ -675,7 +1029,7 @@ function toggleShoppingItem(itemId) {
   const set = new Set(week.checkedItemIds);
   if (set.has(itemId)) set.delete(itemId); else set.add(itemId);
   week.checkedItemIds = Array.from(set);
-  week.updatedAt = new Date().toISOString();
+  touchWeekField(week, "checkedItemIds");
   saveData();
   renderShop();
 }
@@ -692,7 +1046,13 @@ function toggleNotNeededItem(itemId) {
     showToast("Marked as not needed");
   }
   week.notNeededItemIds = Array.from(skipped);
-  week.updatedAt = new Date().toISOString();
+  const skipStamp = new Date().toISOString();
+  touchWeekField(week, "notNeededItemIds", null, skipStamp);
+  if (!skipped.has(itemId)) {
+    // Restoring doesn't alter checked state.
+  } else {
+    touchWeekField(week, "checkedItemIds", null, skipStamp);
+  }
   saveData();
   renderShop();
 }
@@ -728,7 +1088,10 @@ function addShopItem(event) {
   else if (!existing) week.extras.push({ id: uid("extra"), itemId: item.id, qty, unit });
   week.checkedItemIds = week.checkedItemIds.filter(id => id !== item.id);
   week.notNeededItemIds = week.notNeededItemIds.filter(id => id !== item.id);
-  week.updatedAt = new Date().toISOString();
+  const addStamp = new Date().toISOString();
+  touchWeekField(week, "extras", null, addStamp);
+  touchWeekField(week, "checkedItemIds", null, addStamp);
+  touchWeekField(week, "notNeededItemIds", null, addStamp);
   saveData();
   closeOverlay("shop-item-overlay");
   renderAll();
@@ -738,7 +1101,7 @@ function addShopItem(event) {
 function renderRegularPicker() {
   const week = getWeek();
   const selected = new Set(week.regularItemIds);
-  const regulars = data.items.filter(item => item.regular).sort((a, b) => a.name.localeCompare(b.name));
+  const regulars = data.items.filter(item => !item.deletedAt && item.regular).sort((a, b) => a.name.localeCompare(b.name));
   $("#regular-picker-list").innerHTML = regulars.length ? regulars.map(item => `<button class="regular-chip ${selected.has(item.id) ? "selected" : ""}" type="button" data-regular-pick="${item.id}"><span>${escapeHtml(item.name)}</span><span class="chip-mark">${selected.has(item.id) ? "✓" : "+"}</span></button>`).join("") : `<div class="empty-state"><strong>No regulars yet</strong><p>Add some from Manage regulars.</p></div>`;
 }
 
@@ -749,14 +1112,17 @@ function toggleRegularForWeek(itemId) {
   week.regularItemIds = Array.from(set);
   week.checkedItemIds = week.checkedItemIds.filter(id => id !== itemId);
   week.notNeededItemIds = week.notNeededItemIds.filter(id => id !== itemId);
-  week.updatedAt = new Date().toISOString();
+  const regularStamp = new Date().toISOString();
+  touchWeekField(week, "regularItemIds", null, regularStamp);
+  touchWeekField(week, "checkedItemIds", null, regularStamp);
+  touchWeekField(week, "notNeededItemIds", null, regularStamp);
   saveData();
   renderRegularPicker();
   renderShop();
 }
 
 function renderRegularManager() {
-  const items = [...data.items].sort((a, b) => Number(b.regular) - Number(a.regular) || a.name.localeCompare(b.name));
+  const items = data.items.filter(item => !item.deletedAt).sort((a, b) => Number(b.regular) - Number(a.regular) || a.name.localeCompare(b.name));
   $("#regular-manager-list").innerHTML = items.map(item => `<div class="regular-manager-row"><span>${escapeHtml(item.name)}</span><button class="switch ${item.regular ? "on" : ""}" type="button" data-toggle-regular="${item.id}" aria-label="${item.regular ? "Remove" : "Add"} ${escapeHtml(item.name)} ${item.regular ? "from" : "to"} regulars" aria-pressed="${item.regular}"></button></div>`).join("");
 }
 
@@ -764,10 +1130,13 @@ function toggleItemRegular(itemId) {
   const item = findItem(itemId);
   if (!item) return;
   item.regular = !item.regular;
-  item.updatedAt = new Date().toISOString();
+  touchRecord(item);
   if (!item.regular) {
     Object.values(data.weeks).forEach(week => {
-      if (Array.isArray(week.regularItemIds)) week.regularItemIds = week.regularItemIds.filter(id => id !== item.id);
+      if (Array.isArray(week.regularItemIds) && week.regularItemIds.includes(item.id)) {
+        week.regularItemIds = week.regularItemIds.filter(id => id !== item.id);
+        touchWeekField(week, "regularItemIds");
+      }
     });
   }
   saveData();
@@ -789,7 +1158,199 @@ function addRegularItem(event) {
 }
 
 function openDataSharing() {
+  renderHouseholdSummary();
   openOverlay("data-overlay");
+}
+
+function householdDisplayName() {
+  return normaliseName(data.household?.name) || "Our household";
+}
+
+function renderHouseholdSummary() {
+  const members = activeMembers();
+  const appUsers = members.filter(member => member.appUser);
+  $("#household-title").textContent = householdDisplayName();
+  $("#household-members-preview").innerHTML = members.length
+    ? `<div class="household-avatar-stack">${members.slice(0, 6).map(member => memberAvatar(member)).join("")}</div><div><strong>${members.length} ${members.length === 1 ? "person" : "people"}</strong><small>${appUsers.length ? `${appUsers.length} app user${appUsers.length === 1 ? "" : "s"}` : "No app users set yet"}</small></div>`
+    : `<div class="household-empty-mini"><strong>Set up your household</strong><small>Add the adults and kids you plan meals for.</small></div>`;
+  const current = findMember(data.settings.currentMemberId);
+  $("#current-device-member").textContent = current ? `${current.name} on this copy` : "This copy isn’t assigned to an app user yet";
+  $("#manage-household").textContent = members.length ? "Manage household" : "Set up household";
+}
+
+function renderHouseholdManager() {
+  $("#household-name").value = householdDisplayName();
+  const currentId = data.settings.currentMemberId;
+  const members = activeMembers();
+  $("#household-member-list").innerHTML = members.length ? members.map(member => `
+    <div class="household-member-row">
+      ${memberAvatar(member)}
+      <div class="household-member-main"><strong>${escapeHtml(member.name)}</strong><span>${member.role === "child" ? "Child" : "Adult"}${member.appUser ? " · App user" : ""}${member.id === currentId ? " · This copy" : ""}</span></div>
+      <button class="member-edit-button" type="button" data-edit-member="${escapeHtml(member.id)}" aria-label="Edit ${escapeHtml(member.name)}">•••</button>
+    </div>`).join("") : `<div class="empty-state compact-empty"><strong>No people yet</strong><p>Add everyone you might plan meals for.</p></div>`;
+}
+
+function openHouseholdManager() {
+  renderHouseholdManager();
+  closeOverlay("data-overlay");
+  openOverlay("household-manager-overlay");
+}
+
+function saveHouseholdName(event) {
+  event.preventDefault();
+  const name = normaliseName($("#household-name").value) || "Our household";
+  data.household.name = name;
+  data.household.weekStartDay = Number(data.settings.weekStartDay);
+  touchRecord(data.household);
+  saveData();
+  renderHouseholdManager();
+  showToast("Household saved");
+}
+
+function nextMemberColor() {
+  const used = new Set(activeMembers().map(member => member.color));
+  return MEMBER_COLORS.find(color => !used.has(color)) || MEMBER_COLORS[activeMembers().length % MEMBER_COLORS.length];
+}
+
+function renderMemberColorChoices(selected) {
+  $("#member-color-choices").innerHTML = MEMBER_COLORS.map(color => `<button type="button" class="member-color-choice member-${color} ${color === selected ? "selected" : ""}" data-member-color="${color}" aria-label="Choose ${color} colour"><span></span></button>`).join("");
+  $("#member-color").value = selected;
+}
+
+function openMemberEditor(memberId = null) {
+  const member = memberId ? findMember(memberId) : null;
+  $("#member-editor-title").textContent = member ? "Edit person" : "Add person";
+  $("#member-id").value = member?.id || "";
+  $("#member-name").value = member?.name || "";
+  $("#member-role").value = member?.role || "adult";
+  $("#member-app-user").checked = !!member?.appUser;
+  $("#member-this-device").checked = !!member && data.settings.currentMemberId === member.id;
+  $("#member-this-device").disabled = !member?.appUser;
+  $("#delete-member").hidden = !member;
+  renderMemberColorChoices(member?.color || nextMemberColor());
+  closeOverlay("household-manager-overlay");
+  openOverlay("member-editor-overlay");
+}
+
+function saveMember(event) {
+  event.preventDefault();
+  const name = normaliseName($("#member-name").value);
+  if (!name) return;
+  const now = new Date().toISOString();
+  const id = $("#member-id").value;
+  let member = id ? findMember(id) : null;
+  if (!member) {
+    member = { id: uid("member"), name, role: "adult", appUser: false, color: nextMemberColor(), createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null };
+    data.household.members.push(member);
+  }
+  member.name = name;
+  member.role = $("#member-role").value === "child" ? "child" : "adult";
+  member.appUser = $("#member-app-user").checked;
+  member.color = MEMBER_COLORS.includes($("#member-color").value) ? $("#member-color").value : nextMemberColor();
+  const wasCurrentDeviceMember = data.settings.currentMemberId === member.id;
+  const markThisCopy = member.appUser && $("#member-this-device").checked;
+  if (markThisCopy) data.settings.currentMemberId = member.id;
+  else if (wasCurrentDeviceMember) data.settings.currentMemberId = null;
+  touchRecord(member, now);
+  touchRecord(data.household, now);
+  saveData();
+  closeOverlay("member-editor-overlay");
+  renderHouseholdManager();
+  openOverlay("household-manager-overlay");
+  renderAll();
+  showToast(id ? "Person updated" : "Person added");
+}
+
+function cleanMemberFromPlans(memberId) {
+  Object.values(data.weeks).forEach(week => {
+    const cleanWeek = normaliseWeek(week, week.startDate);
+    ["dinner", "lunch"].forEach(slotType => {
+      cleanWeek.slots[slotType] = cleanWeek.slots[slotType].map((assignments, dayIndex) => {
+        let changed = false;
+        const next = assignments.map(assignment => {
+          if (assignment.memberIds === null || !assignment.memberIds.includes(memberId)) return assignment;
+          changed = true;
+          return { ...assignment, memberIds: assignment.memberIds.filter(id => id !== memberId) };
+        }).filter(assignment => assignment.memberIds === null || assignment.memberIds.length);
+        if (changed) touchWeekField(cleanWeek, slotType, dayIndex);
+        return normaliseSplitSlot(next);
+      });
+    });
+    syncLegacyWeekSlots(cleanWeek);
+  });
+}
+
+function deleteMember() {
+  const member = findMember($("#member-id").value);
+  if (!member || !confirm(`Remove ${member.name} from this household? Existing split meal plans will be adjusted.`)) return;
+  const now = new Date().toISOString();
+  member.deletedAt = now;
+  touchRecord(member, now);
+  if (data.settings.currentMemberId === member.id) data.settings.currentMemberId = null;
+  cleanMemberFromPlans(member.id);
+  touchRecord(data.household, now);
+  saveData();
+  closeOverlay("member-editor-overlay");
+  renderHouseholdManager();
+  openOverlay("household-manager-overlay");
+  renderAll();
+  showToast("Person removed");
+}
+
+function openSplitMembers(dayIndex, slotType) {
+  const members = activeMembers();
+  if (members.length < 2) {
+    showToast("Add at least two people to split a meal");
+    return;
+  }
+  const week = getWeek();
+  const assignments = getSlotAssignments(week, slotType, Number(dayIndex));
+  if (!assignments.length || assignments.every(assignment => assignment.mealId === NO_MEAL)) return;
+  splitDayIndex = Number(dayIndex);
+  splitSlotType = slotType === "lunch" ? "lunch" : "dinner";
+  pendingSplitMemberIds = [];
+  const date = addDays(selectedWeekStart, splitDayIndex);
+  $("#split-members-title").textContent = `Split ${splitSlotType} · ${formatDayLong(date)}`;
+  $("#split-member-list").innerHTML = members.map(member => `<button type="button" class="split-member-choice" data-split-member="${escapeHtml(member.id)}">${memberAvatar(member)}<span><strong>${escapeHtml(member.name)}</strong><small>${member.role === "child" ? "Child" : "Adult"}</small></span><span class="member-check">✓</span></button>`).join("");
+  updateSplitMemberButton();
+  openOverlay("split-members-overlay");
+}
+
+function toggleSplitMember(memberId) {
+  const set = new Set(pendingSplitMemberIds);
+  if (set.has(memberId)) set.delete(memberId); else set.add(memberId);
+  pendingSplitMemberIds = Array.from(set);
+  $$("[data-split-member]").forEach(button => button.classList.toggle("selected", set.has(button.dataset.splitMember)));
+  updateSplitMemberButton();
+}
+
+function updateSplitMemberButton() {
+  const button = $("#split-members-next");
+  const total = activeMembers().length;
+  const count = pendingSplitMemberIds.length;
+  button.disabled = count < 1 || count >= total;
+  button.textContent = count ? `Choose meal for ${audienceInfo(pendingSplitMemberIds).label}` : "Choose who is eating differently";
+}
+
+function continueSplitMeal() {
+  if (!pendingSplitMemberIds.length || pendingSplitMemberIds.length >= activeMembers().length) return;
+  closeOverlay("split-members-overlay");
+  openMealPicker(splitDayIndex, splitSlotType, null, "split-new");
+}
+
+function unsplitMeal(dayIndex, slotType) {
+  const week = getWeek();
+  const assignments = getSlotAssignments(week, slotType, Number(dayIndex));
+  if (assignments.length < 2) return;
+  const first = assignments[0];
+  first.memberIds = null;
+  touchRecord(first);
+  week.slots[slotType][Number(dayIndex)] = [first];
+  touchWeekField(week, slotType, Number(dayIndex));
+  syncLegacyWeekSlots(week);
+  saveData();
+  renderAll();
+  showToast("Meal is for everyone again");
 }
 
 function fileSafeDate(value = new Date()) {
@@ -870,36 +1431,178 @@ async function importBackupFile(file) {
   }
 }
 
+
+function buildHouseholdPayload() {
+  return {
+    format: "MealPlannerHousehold",
+    version: 1,
+    appVersion: APP_VERSION,
+    exportedAt: new Date().toISOString(),
+    household: clone(data.household),
+    items: clone(data.items),
+    meals: clone(data.meals),
+    weeks: clone(data.weeks)
+  };
+}
+
+async function shareHouseholdUpdate() {
+  if (!activeMembers().length) {
+    closeOverlay("data-overlay");
+    openHouseholdManager();
+    showToast("Set up your household first");
+    return;
+  }
+  const payload = buildHouseholdPayload();
+  const result = await shareOrDownloadJson(
+    payload,
+    `MealPlanner-household-${fileSafeDate()}.json`,
+    `${householdDisplayName()} · Meal Planner`,
+    `Household update from Meal Planner. Import this file to merge meals, plans and shopping changes.`
+  );
+  if (result === "downloaded") showToast("Household update downloaded");
+}
+
+function newerRecord(local, incoming) {
+  if (!local) return clone(incoming);
+  const localStamp = String(local.updatedAt || local.createdAt || "");
+  const incomingStamp = String(incoming.updatedAt || incoming.createdAt || "");
+  return incomingStamp > localStamp ? clone(incoming) : local;
+}
+
+function mergeRecordArray(localArray, incomingArray) {
+  const map = new Map((localArray || []).map(record => [record.id, record]));
+  (incomingArray || []).forEach(record => {
+    if (!record?.id) return;
+    map.set(record.id, newerRecord(map.get(record.id), record));
+  });
+  return Array.from(map.values());
+}
+
+function adoptHouseholdPayload(payload) {
+  const prepared = prepareDataObject({
+    schemaVersion: SCHEMA_VERSION,
+    appVersion: APP_VERSION,
+    bundledContentVersion: data.bundledContentVersion || BUNDLED_CONTENT_VERSION,
+    household: payload.household,
+    items: payload.items,
+    meals: payload.meals,
+    weeks: payload.weeks,
+    settings: { ...data.settings, currentMemberId: null, weekStartDay: payload.household.weekStartDay }
+  });
+  data.household = prepared.household;
+  data.items = prepared.items;
+  data.meals = prepared.meals;
+  data.weeks = prepared.weeks;
+  data.settings.weekStartDay = prepared.household.weekStartDay;
+  data.settings.currentMemberId = null;
+}
+
+function mergeWeekRecord(localWeek, incomingWeek, key) {
+  const local = normaliseWeek(clone(localWeek), key);
+  const incoming = normaliseWeek(clone(incomingWeek), key);
+  const newer = (incomingStamp, localStamp) => String(incomingStamp || "") > String(localStamp || "");
+  ["dinner", "lunch"].forEach(slotType => {
+    for (let index = 0; index < 7; index += 1) {
+      if (newer(incoming.fieldUpdatedAt[slotType][index], local.fieldUpdatedAt[slotType][index])) {
+        local.slots[slotType][index] = clone(incoming.slots[slotType][index]);
+        local.fieldUpdatedAt[slotType][index] = incoming.fieldUpdatedAt[slotType][index];
+      }
+    }
+  });
+  ["regularItemIds", "extras", "checkedItemIds", "notNeededItemIds"].forEach(field => {
+    if (newer(incoming.fieldUpdatedAt[field], local.fieldUpdatedAt[field])) {
+      local[field] = clone(incoming[field]);
+      local.fieldUpdatedAt[field] = incoming.fieldUpdatedAt[field];
+    }
+  });
+  if (newer(incoming.updatedAt, local.updatedAt)) {
+    local.updatedAt = incoming.updatedAt;
+    local.updatedBy = incoming.updatedBy || null;
+  }
+  syncLegacyWeekSlots(local);
+  return local;
+}
+
+function mergeHouseholdPayload(payload) {
+  const incoming = payload.household;
+  const localMemberId = data.settings.currentMemberId;
+  const incomingHouseholdNewer = String(incoming.updatedAt || "") > String(data.household.updatedAt || "");
+  if (incomingHouseholdNewer) {
+    data.household.name = incoming.name || data.household.name;
+    data.household.weekStartDay = Number.isInteger(Number(incoming.weekStartDay)) ? Number(incoming.weekStartDay) : data.household.weekStartDay;
+    data.household.updatedAt = incoming.updatedAt;
+    data.household.updatedBy = incoming.updatedBy || null;
+  }
+  data.household.members = mergeRecordArray(data.household.members, incoming.members || []);
+  if (String(incoming.dataUpdatedAt || "") > String(data.household.dataUpdatedAt || "")) {
+    data.household.dataUpdatedAt = incoming.dataUpdatedAt;
+    data.household.dataUpdatedBy = incoming.dataUpdatedBy || null;
+  }
+  data.items = mergeRecordArray(data.items, payload.items || []);
+  data.meals = mergeRecordArray(data.meals, payload.meals || []);
+  Object.entries(payload.weeks || {}).forEach(([key, incomingWeek]) => {
+    const localWeek = data.weeks[key];
+    data.weeks[key] = localWeek ? mergeWeekRecord(localWeek, incomingWeek, key) : normaliseWeek(clone(incomingWeek), key);
+  });
+  data.settings.weekStartDay = data.household.weekStartDay;
+  data.settings.currentMemberId = activeMembers().some(member => member.id === localMemberId && member.appUser) ? localMemberId : null;
+}
+
+async function importHouseholdFile(file) {
+  if (!file) return;
+  try {
+    const payload = JSON.parse(await file.text());
+    if (payload?.format !== "MealPlannerHousehold" || payload.version !== 1 || !payload.household?.id || !Array.isArray(payload.items) || !Array.isArray(payload.meals) || !payload.weeks) {
+      throw new Error("This is not a Meal Planner household update.");
+    }
+    const sameHousehold = payload.household.id === data.household.id;
+    if (!sameHousehold) {
+      const existingConfigured = activeMembers().length > 0;
+      const question = existingConfigured
+        ? `This update belongs to “${payload.household.name || "another household"}”. Join it? This copy's current household meal data will be replaced.`
+        : `Join “${payload.household.name || "this household"}”? Its meals, plans and shopping data will become the shared household in this copy.`;
+      if (!confirm(question)) return;
+      adoptHouseholdPayload(payload);
+    } else {
+      mergeHouseholdPayload(payload);
+    }
+    selectedWeekStart = startOfWeek(selectedWeekStart, data.household.weekStartDay);
+    saveData();
+    renderAll();
+    renderHouseholdSummary();
+    showToast(sameHousehold ? "Household update merged" : "Household joined");
+  } catch (error) {
+    alert(error?.message || "That household update could not be imported.");
+  }
+}
+
 function buildSharedWeekPayload() {
   const week = getWeek();
-  const usedMealIds = new Set(
-    [...week.meals, ...week.lunches].filter(id => id && id !== NO_MEAL)
-  );
+  const usedMealIds = new Set();
+  ["dinner", "lunch"].forEach(slotType => week.slots[slotType].forEach(assignments => assignments.forEach(assignment => {
+    if (assignment.mealId && assignment.mealId !== NO_MEAL) usedMealIds.add(assignment.mealId);
+  })));
   const meals = data.meals
-    .filter(meal => usedMealIds.has(meal.id))
-    .map(meal => ({
-      id: meal.id,
-      name: meal.name,
-      ingredients: clone(meal.ingredients || []),
-      sourceUrl: meal.sourceUrl || null
-    }));
+    .filter(meal => !meal.deletedAt && usedMealIds.has(meal.id))
+    .map(meal => ({ id: meal.id, name: meal.name, ingredients: clone(meal.ingredients || []), sourceUrl: meal.sourceUrl || null }));
   const usedItemIds = new Set();
   meals.forEach(meal => meal.ingredients.forEach(ingredient => usedItemIds.add(ingredient.itemId)));
   const items = data.items
-    .filter(item => usedItemIds.has(item.id))
+    .filter(item => !item.deletedAt && usedItemIds.has(item.id))
     .map(item => ({ id: item.id, name: item.name, category: item.category }));
   const days = Array.from({ length: 7 }, (_, index) => ({
     date: localDateKey(addDays(selectedWeekStart, index)),
-    dinnerMealId: week.meals[index] || null,
-    lunchMealId: week.lunches[index] || null
+    dinnerAssignments: clone(week.slots.dinner[index]),
+    lunchAssignments: clone(week.slots.lunch[index])
   }));
   return {
     format: "MealPlannerWeek",
-    version: 1,
+    version: 2,
     appVersion: APP_VERSION,
     exportedAt: new Date().toISOString(),
     startDate: localDateKey(selectedWeekStart),
     weekStartDay: Number(data.settings.weekStartDay),
+    householdMembers: clone(activeMembers()),
     days,
     meals,
     items
@@ -908,20 +1611,20 @@ function buildSharedWeekPayload() {
 
 async function shareCurrentWeek() {
   const payload = buildSharedWeekPayload();
-  const mealCount = payload.days.filter(day => day.dinnerMealId && day.dinnerMealId !== NO_MEAL).length;
-  const lunchCount = payload.days.filter(day => day.lunchMealId).length;
+  const mealCount = payload.days.reduce((sum, day) => sum + day.dinnerAssignments.filter(assignment => assignment.mealId !== NO_MEAL).length, 0);
+  const lunchCount = payload.days.reduce((sum, day) => sum + day.lunchAssignments.length, 0);
   const result = await shareOrDownloadJson(
     payload,
     `MealPlanner-week-${payload.startDate}.json`,
     `Meal plan · ${formatWeekRange(selectedWeekStart)}`,
-    `${mealCount} dinner${mealCount === 1 ? "" : "s"}${lunchCount ? ` and ${lunchCount} lunch${lunchCount === 1 ? "" : "es"}` : ""}. Import this file in Meal Planner.`
+    `${mealCount} dinner meal${mealCount === 1 ? "" : "s"}${lunchCount ? ` and ${lunchCount} lunch meal${lunchCount === 1 ? "" : "s"}` : ""}. Import this file in Meal Planner.`
   );
   if (result === "downloaded") showToast("Shared week downloaded");
 }
 
 function findMealByName(name) {
   const key = keyName(name);
-  return data.meals.find(meal => keyName(meal.name) === key) || null;
+  return data.meals.find(meal => !meal.deletedAt && keyName(meal.name) === key) || null;
 }
 
 function weekForCalendarDate(date) {
@@ -936,12 +1639,10 @@ async function importSharedWeekFile(file) {
   if (!file) return;
   try {
     const payload = JSON.parse(await file.text());
-    if (payload?.format !== "MealPlannerWeek" || payload.version !== 1 || !Array.isArray(payload.days) || !Array.isArray(payload.meals) || !Array.isArray(payload.items)) {
+    if (payload?.format !== "MealPlannerWeek" || ![1,2].includes(payload.version) || !Array.isArray(payload.days) || !Array.isArray(payload.meals) || !Array.isArray(payload.items)) {
       throw new Error("This is not a shared Meal Planner week file.");
     }
-    if (!payload.days.length || payload.days.some(day => !/^\d{4}-\d{2}-\d{2}$/.test(String(day.date || "")))) {
-      throw new Error("The shared week does not contain valid calendar dates.");
-    }
+    if (!payload.days.length || payload.days.some(day => !/^\d{4}-\d{2}-\d{2}$/.test(String(day.date || "")))) throw new Error("The shared week does not contain valid calendar dates.");
 
     const firstDate = fromDateKey(payload.days[0].date);
     const lastDate = fromDateKey(payload.days[payload.days.length - 1].date);
@@ -958,33 +1659,56 @@ async function importSharedWeekFile(file) {
     payload.meals.forEach(sharedMeal => {
       const name = normaliseName(sharedMeal.name);
       if (!name || !sharedMeal.id) return;
-      const ingredients = Array.isArray(sharedMeal.ingredients) ? sharedMeal.ingredients
-        .map(ingredient => ({
-          itemId: itemMap.get(ingredient.itemId),
-          qty: normaliseName(ingredient.qty),
-          unit: normaliseName(ingredient.unit)
-        }))
-        .filter(ingredient => ingredient.itemId) : [];
+      const ingredients = Array.isArray(sharedMeal.ingredients) ? sharedMeal.ingredients.map(ingredient => ({
+        itemId: itemMap.get(ingredient.itemId), qty: normaliseName(ingredient.qty), unit: normaliseName(ingredient.unit)
+      })).filter(ingredient => ingredient.itemId) : [];
       let meal = findMealByName(name);
       const now = new Date().toISOString();
       if (!meal) {
-        meal = { id: uid("meal"), name, ingredients, createdAt: now, updatedAt: now, lastUsedAt: null };
+        meal = { id: uid("meal"), name, ingredients, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null };
         data.meals.push(meal);
       } else {
         meal.ingredients = ingredients;
-        meal.updatedAt = now;
+        touchRecord(meal, now);
       }
       if (sharedMeal.sourceUrl) meal.sourceUrl = sharedMeal.sourceUrl;
       mealMap.set(sharedMeal.id, meal.id);
     });
 
+    const memberMap = new Map();
+    if (payload.version >= 2 && Array.isArray(payload.householdMembers) && activeMembers().length) {
+      payload.householdMembers.forEach(sharedMember => {
+        const local = activeMembers().find(member => keyName(member.name) === keyName(sharedMember.name));
+        if (local) memberMap.set(sharedMember.id, local.id);
+      });
+    }
+
+    const convertAssignments = (day, slotType) => {
+      if (payload.version === 1) {
+        const mealId = slotType === "dinner" ? day.dinnerMealId : day.lunchMealId;
+        if (!mealId) return [];
+        return [makeAssignment(mealId === NO_MEAL ? NO_MEAL : (mealMap.get(mealId) || null), null)].filter(assignment => assignment.mealId);
+      }
+      const source = slotType === "dinner" ? day.dinnerAssignments : day.lunchAssignments;
+      return (Array.isArray(source) ? source : []).map(assignment => {
+        const mappedMealId = assignment.mealId === NO_MEAL ? NO_MEAL : mealMap.get(assignment.mealId);
+        if (!mappedMealId) return null;
+        let memberIds = null;
+        if (Array.isArray(assignment.memberIds) && memberMap.size) memberIds = assignment.memberIds.map(id => memberMap.get(id)).filter(Boolean);
+        return makeAssignment(mappedMealId, memberIds);
+      }).filter(Boolean);
+    };
+
     payload.days.forEach(day => {
       const date = fromDateKey(day.date);
       const target = weekForCalendarDate(date);
       if (target.index < 0 || target.index > 6) return;
-      target.week.meals[target.index] = day.dinnerMealId === NO_MEAL ? NO_MEAL : (mealMap.get(day.dinnerMealId) || null);
-      target.week.lunches[target.index] = mealMap.get(day.lunchMealId) || null;
-      target.week.updatedAt = new Date().toISOString();
+      target.week.slots.dinner[target.index] = convertAssignments(day, "dinner");
+      target.week.slots.lunch[target.index] = convertAssignments(day, "lunch");
+      const importStamp = new Date().toISOString();
+      touchWeekField(target.week, "dinner", target.index, importStamp);
+      touchWeekField(target.week, "lunch", target.index, importStamp);
+      syncLegacyWeekSlots(target.week);
     });
 
     selectedWeekStart = startOfWeek(firstDate, data.settings.weekStartDay);
@@ -1005,7 +1729,8 @@ function openWeekSettings() {
 
 function weekHasMealPlan(week) {
   if (!week) return false;
-  return [...(week.meals || []), ...(week.lunches || [])].some(mealId => mealId !== null && mealId !== undefined);
+  const clean = normaliseWeek(week, week.startDate || "");
+  return ["dinner", "lunch"].some(slotType => clean.slots[slotType].some(assignments => assignments.length));
 }
 
 function updateMoveWeekTarget() {
@@ -1055,20 +1780,23 @@ function moveCurrentWeekPlan(event) {
   }
 
   const existingTarget = data.weeks[targetKey] ? normaliseWeek(data.weeks[targetKey], targetKey) : emptyWeek(targetKey);
-  if (weekHasMealPlan(existingTarget)) {
-    const replace = confirm(`The destination week (${formatWeekRange(targetStart)}) already has planned meals. Replace those dinners and lunches?`);
-    if (!replace) return;
-  }
+  if (weekHasMealPlan(existingTarget) && !confirm(`The destination week (${formatWeekRange(targetStart)}) already has planned meals. Replace those dinners and lunches?`)) return;
 
   const now = new Date().toISOString();
-  existingTarget.meals = clone(sourceWeek.meals);
-  existingTarget.lunches = clone(sourceWeek.lunches);
-  existingTarget.updatedAt = now;
+  existingTarget.slots = clone(sourceWeek.slots);
+  for (let index = 0; index < 7; index += 1) {
+    touchWeekField(existingTarget, "dinner", index, now);
+    touchWeekField(existingTarget, "lunch", index, now);
+  }
+  syncLegacyWeekSlots(existingTarget);
   data.weeks[targetKey] = existingTarget;
 
-  sourceWeek.meals = Array(7).fill(null);
-  sourceWeek.lunches = Array(7).fill(null);
-  sourceWeek.updatedAt = now;
+  sourceWeek.slots = { dinner: Array.from({ length: 7 }, () => []), lunch: Array.from({ length: 7 }, () => []) };
+  for (let index = 0; index < 7; index += 1) {
+    touchWeekField(sourceWeek, "dinner", index, now);
+    touchWeekField(sourceWeek, "lunch", index, now);
+  }
+  syncLegacyWeekSlots(sourceWeek);
   data.weeks[sourceKey] = sourceWeek;
 
   selectedWeekStart = targetStart;
@@ -1089,6 +1817,8 @@ function saveWeekSettings(event) {
     const viewAnchor = addDays(selectedWeekStart, 3);
     data.weeks = rebaseWeekMap(data.weeks, previousStartDay, nextStartDay);
     data.settings.weekStartDay = nextStartDay;
+    data.household.weekStartDay = nextStartDay;
+    touchRecord(data.household);
     selectedWeekStart = startOfWeek(viewAnchor, nextStartDay);
     saveData();
     renderAll();
@@ -1113,6 +1843,7 @@ function renderAll() {
   renderWeek();
   renderMeals();
   renderShop();
+  if ($("#household-title")) renderHouseholdSummary();
 }
 
 function changeWeek(offset) {
@@ -1123,12 +1854,22 @@ function changeWeek(offset) {
 
 function bindEvents() {
   document.addEventListener("click", event => {
+    const splitButton = event.target.closest("[data-split-slot]");
+    if (splitButton) return openSplitMembers(splitButton.dataset.dayIndex, splitButton.dataset.splitSlot);
+    const unsplitButton = event.target.closest("[data-unsplit-slot]");
+    if (unsplitButton) return unsplitMeal(unsplitButton.dataset.dayIndex, unsplitButton.dataset.unsplitSlot);
     const slot = event.target.closest("[data-day-index][data-meal-slot]");
-    if (slot) return openMealPicker(slot.dataset.dayIndex, slot.dataset.mealSlot);
+    if (slot) return openMealPicker(slot.dataset.dayIndex, slot.dataset.mealSlot, slot.dataset.assignmentId || null);
+    const splitMember = event.target.closest("[data-split-member]");
+    if (splitMember) return toggleSplitMember(splitMember.dataset.splitMember);
     const pick = event.target.closest("[data-pick-meal]");
     if (pick) return chooseMealForDay(pick.dataset.pickMeal);
     const edit = event.target.closest("[data-edit-meal]");
     if (edit) return openMealEditor(edit.dataset.editMeal);
+    const editMember = event.target.closest("[data-edit-member]");
+    if (editMember) return openMemberEditor(editMember.dataset.editMember);
+    const memberColor = event.target.closest("[data-member-color]");
+    if (memberColor) return renderMemberColorChoices(memberColor.dataset.memberColor);
     const removeExtra = event.target.closest("[data-remove-extra]");
     if (removeExtra) return removeExtraItem(removeExtra.dataset.removeExtra);
     const skipItem = event.target.closest("[data-skip-item]");
@@ -1180,6 +1921,8 @@ function bindEvents() {
   $("#meal-form").addEventListener("submit", saveMealFromForm);
   $("#delete-meal").addEventListener("click", deleteCurrentMeal);
 
+  $("#split-members-next").addEventListener("click", continueSplitMeal);
+
   $("#add-shop-item").addEventListener("click", openShopItemEditor);
   $("#shop-item-name").addEventListener("change", syncShopCategoryFromKnownName);
   $("#shop-item-form").addEventListener("submit", addShopItem);
@@ -1188,6 +1931,21 @@ function bindEvents() {
   $("#regular-picker-done").addEventListener("click", () => closeOverlay("regular-picker-overlay"));
   $("#manage-regulars").addEventListener("click", () => { renderRegularManager(); openOverlay("regular-manager-overlay"); });
   $("#regular-add-form").addEventListener("submit", addRegularItem);
+
+  $("#manage-household").addEventListener("click", openHouseholdManager);
+  $("#household-name-form").addEventListener("submit", saveHouseholdName);
+  $("#add-household-member").addEventListener("click", () => openMemberEditor());
+  $("#member-form").addEventListener("submit", saveMember);
+  $("#delete-member").addEventListener("click", deleteMember);
+  $("#member-app-user").addEventListener("change", event => {
+    $("#member-this-device").disabled = !event.target.checked;
+    if (!event.target.checked) $("#member-this-device").checked = false;
+  });
+  $("#share-household").addEventListener("click", shareHouseholdUpdate);
+  $("#import-household").addEventListener("click", () => $("#household-file-input").click());
+  $("#household-file-input").addEventListener("change", async event => {
+    const file = event.target.files?.[0]; event.target.value = ""; await importHouseholdFile(file);
+  });
 
   $("#export-backup").addEventListener("click", exportBackup);
   $("#import-backup").addEventListener("click", () => $("#backup-file-input").click());
