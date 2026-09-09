@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=1.0.10">
+  <link rel="stylesheet" href="./style.css?v=1.0.11">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -141,9 +141,9 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
         <input id="picker-search" type="search" placeholder="Find a meal" autocomplete="off">
       </label>
+      <button class="secondary-button picker-rejoin-button" id="rejoin-original" type="button" hidden>Rejoin original meal</button>
       <div class="picker-list" id="picker-list"></div>
       <div class="picker-clear-actions">
-        <button class="secondary-button picker-clear-button" id="rejoin-original" type="button" hidden>Rejoin original meal</button>
         <button class="secondary-button picker-clear-button" id="clear-day" type="button">Clear dinner</button>
         <button class="danger-quiet-button picker-no-meal-button" id="no-dinner" type="button">No dinner / eating out</button>
       </div>
@@ -463,6 +463,6 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.10"></script>
+  <script src="./app.js?v=1.0.11"></script>
 </body>
 </html>
