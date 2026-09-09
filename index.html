@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=1.0.8">
+  <link rel="stylesheet" href="./style.css?v=1.0.9">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -143,6 +143,7 @@
       </label>
       <div class="picker-list" id="picker-list"></div>
       <div class="picker-clear-actions">
+        <button class="secondary-button picker-clear-button" id="rejoin-original" type="button" hidden>Rejoin original meal</button>
         <button class="secondary-button picker-clear-button" id="clear-day" type="button">Clear dinner</button>
         <button class="danger-quiet-button picker-no-meal-button" id="no-dinner" type="button">No dinner / eating out</button>
       </div>
@@ -462,6 +463,6 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.8"></script>
+  <script src="./app.js?v=1.0.9"></script>
 </body>
 </html>

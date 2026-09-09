@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.8";
+const APP_VERSION = "1.0.9";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -635,20 +635,26 @@ function audienceInfo(memberIds) {
   return { label: `${selected.length} people`, members: selected };
 }
 
-function audienceMarkup(memberIds, compactEveryone = false) {
+function audienceAvatarsMarkup(memberIds) {
   const info = audienceInfo(memberIds);
-  if (compactEveryone && memberIds === null && info.members.length) {
-    return `<span class="audience compact-everyone" title="Everyone">All</span>`;
-  }
-  const avatars = info.members.slice(0, 4).map(member => memberAvatar(member, true)).join("");
-  return `<span class="audience" title="${escapeHtml(info.label)}"><span class="audience-avatars">${avatars}</span><span>${escapeHtml(info.label)}</span></span>`;
+  const avatars = info.members.slice(0, 5).map(member => memberAvatar(member, true)).join("");
+  return `<span class="audience audience-initials-only" title="${escapeHtml(info.label)}" aria-label="${escapeHtml(info.label)}"><span class="audience-avatars">${avatars}</span></span>`;
+}
+
+function audienceControlMarkup(memberIds, slotType, dayIndex) {
+  const info = audienceInfo(memberIds);
+  const all = memberIds === null || info.label === "Everyone";
+  const content = all
+    ? `<span class="audience-control-label">All</span>`
+    : `<span class="audience-avatars">${info.members.slice(0, 4).map(member => memberAvatar(member, true)).join("")}</span>`;
+  return `<button class="audience-control" type="button" data-split-slot="${slotType}" data-day-index="${dayIndex}" aria-label="Choose who has this ${slotType}" title="${escapeHtml(info.label)}">${content}<span class="audience-chevron" aria-hidden="true">⌄</span></button>`;
 }
 
 function mealPeriodMarkup(slotType, dayIndex, assignments) {
   const label = slotType === "lunch" ? "Lunch" : "Dinner";
   if (!assignments.length) {
     if (slotType === "lunch") return `<button class="add-lunch-button" type="button" data-day-index="${dayIndex}" data-meal-slot="lunch">＋ Lunch</button>`;
-    return `<button class="meal-slot dinner empty" type="button" data-day-index="${dayIndex}" data-meal-slot="dinner"><span class="slot-label">Dinner</span><strong>Choose meal</strong><span class="slot-arrow" aria-hidden="true">›</span></button>`;
+    return `<button class="meal-slot dinner empty" type="button" data-day-index="${dayIndex}" data-meal-slot="dinner"><span class="meal-slot-copy"><span class="slot-label">Dinner</span><strong>Choose meal</strong></span><span class="slot-arrow" aria-hidden="true">›</span></button>`;
   }
 
   if (assignments.length === 1) {
@@ -657,11 +663,11 @@ function mealPeriodMarkup(slotType, dayIndex, assignments) {
     const meal = noMeal ? null : findMeal(assignment.mealId);
     const name = meal ? meal.name : noMeal ? "No meal / eating out" : "Choose meal";
     const canSplit = !noMeal && activeMembers().length > 1;
-    return `<div class="meal-period single ${slotType}">
+    return `<div class="meal-period single ${slotType} ${canSplit ? "has-audience-control" : ""}">
       <button class="meal-slot ${slotType} ${meal || noMeal ? "" : "empty"}" type="button" data-day-index="${dayIndex}" data-meal-slot="${slotType}" data-assignment-id="${escapeHtml(assignment.id)}">
-        <span class="slot-label">${label}</span><strong>${escapeHtml(name)}</strong>${meal ? audienceMarkup(assignment.memberIds, true) : ""}<span class="slot-arrow" aria-hidden="true">›</span>
+        <span class="meal-slot-copy"><span class="slot-label">${label}</span><strong>${escapeHtml(name)}</strong></span><span class="slot-arrow" aria-hidden="true">›</span>
       </button>
-      ${canSplit ? `<button class="split-meal-button" type="button" data-split-slot="${slotType}" data-day-index="${dayIndex}">Split</button>` : ""}
+      ${canSplit ? audienceControlMarkup(assignment.memberIds, slotType, dayIndex) : ""}
     </div>`;
   }
 
@@ -669,11 +675,11 @@ function mealPeriodMarkup(slotType, dayIndex, assignments) {
     const meal = findMeal(assignment.mealId);
     if (!meal) return "";
     return `<button class="split-assignment-row" type="button" data-day-index="${dayIndex}" data-meal-slot="${slotType}" data-assignment-id="${escapeHtml(assignment.id)}">
-      <strong>${escapeHtml(meal.name)}</strong>${audienceMarkup(assignment.memberIds)}<span class="slot-arrow" aria-hidden="true">›</span>
+      <strong>${escapeHtml(meal.name)}</strong>${audienceAvatarsMarkup(assignment.memberIds)}<span class="slot-arrow" aria-hidden="true">›</span>
     </button>`;
   }).join("");
   return `<div class="meal-period split ${slotType}">
-    <div class="split-period-heading"><span>${label}</span><span><button type="button" data-split-slot="${slotType}" data-day-index="${dayIndex}">＋ Different</button><button type="button" class="unsplit-button" data-unsplit-slot="${slotType}" data-day-index="${dayIndex}">Unsplit</button></span></div>
+    <div class="split-period-heading"><span>${label}</span><button type="button" data-split-slot="${slotType}" data-day-index="${dayIndex}">＋ Different</button></div>
     ${rows}
   </div>`;
 }
@@ -750,7 +756,11 @@ function openMealPicker(dayIndex, slotType = "dinner", assignmentId = null, mode
   $("#meal-picker-title").textContent = `${formatDayLong(date)} ${slotLabel.toLowerCase()}${suffix} · ${formatDateShort(date)}`;
   const week = getWeek();
   const assignments = getSlotAssignments(week, pickerSlotType, pickerDayIndex);
-  const editingSplitAssignment = !!pickerAssignmentId && assignments.length > 1;
+  const splitAssignmentIndex = pickerAssignmentId ? assignments.findIndex(assignment => assignment.id === pickerAssignmentId) : -1;
+  const editingSplitAssignment = splitAssignmentIndex >= 0 && assignments.length > 1;
+  const canRejoinOriginal = editingSplitAssignment && splitAssignmentIndex > 0;
+  $("#rejoin-original").hidden = !canRejoinOriginal;
+  $("#clear-day").hidden = canRejoinOriginal;
   $("#clear-day").textContent = editingSplitAssignment ? "Remove this meal" : (pickerSlotType === "lunch" ? "Remove lunch" : "Clear dinner");
   $("#no-dinner").hidden = pickerSlotType === "lunch" || editingSplitAssignment || pickerMode === "split-new";
   $("#picker-search").value = "";
@@ -1338,19 +1348,30 @@ function continueSplitMeal() {
   openMealPicker(splitDayIndex, splitSlotType, null, "split-new");
 }
 
-function unsplitMeal(dayIndex, slotType) {
+function rejoinOriginalMeal() {
   const week = getWeek();
-  const assignments = getSlotAssignments(week, slotType, Number(dayIndex));
-  if (assignments.length < 2) return;
-  const first = assignments[0];
-  first.memberIds = null;
-  touchRecord(first);
-  week.slots[slotType][Number(dayIndex)] = [first];
-  touchWeekField(week, slotType, Number(dayIndex));
+  const assignments = getSlotAssignments(week, pickerSlotType, pickerDayIndex);
+  const index = assignments.findIndex(assignment => assignment.id === pickerAssignmentId);
+  if (index <= 0 || assignments.length < 2) return;
+
+  const now = new Date().toISOString();
+  const returning = assignments[index];
+  const original = assignments[0];
+  const allIds = activeMembers().map(member => member.id);
+  const originalIds = original.memberIds === null ? allIds : original.memberIds;
+  const returningIds = returning.memberIds === null ? allIds : returning.memberIds;
+  original.memberIds = Array.from(new Set([...originalIds, ...returningIds]));
+  original.updatedAt = now;
+  original.updatedBy = currentMemberId();
+
+  const next = normaliseSplitSlot(assignments.filter((_, assignmentIndex) => assignmentIndex !== index));
+  week.slots[pickerSlotType][pickerDayIndex] = next;
+  touchWeekField(week, pickerSlotType, pickerDayIndex, now);
   syncLegacyWeekSlots(week);
   saveData();
+  closeOverlay("meal-picker-overlay");
   renderAll();
-  showToast("Meal is for everyone again");
+  showToast("Rejoined original meal");
 }
 
 function fileSafeDate(value = new Date()) {
@@ -1856,8 +1877,6 @@ function bindEvents() {
   document.addEventListener("click", event => {
     const splitButton = event.target.closest("[data-split-slot]");
     if (splitButton) return openSplitMembers(splitButton.dataset.dayIndex, splitButton.dataset.splitSlot);
-    const unsplitButton = event.target.closest("[data-unsplit-slot]");
-    if (unsplitButton) return unsplitMeal(unsplitButton.dataset.dayIndex, unsplitButton.dataset.unsplitSlot);
     const slot = event.target.closest("[data-day-index][data-meal-slot]");
     if (slot) return openMealPicker(slot.dataset.dayIndex, slot.dataset.mealSlot, slot.dataset.assignmentId || null);
     const splitMember = event.target.closest("[data-split-member]");
@@ -1922,6 +1941,7 @@ function bindEvents() {
   $("#delete-meal").addEventListener("click", deleteCurrentMeal);
 
   $("#split-members-next").addEventListener("click", continueSplitMeal);
+  $("#rejoin-original").addEventListener("click", rejoinOriginalMeal);
 
   $("#add-shop-item").addEventListener("click", openShopItemEditor);
   $("#shop-item-name").addEventListener("change", syncShopCategoryFromKnownName);

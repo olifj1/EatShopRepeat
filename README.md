@@ -1,13 +1,12 @@
-# Meal Planner v1.0.8
+# Meal Planner v1.0.9
 
-Household foundation release.
+Split-meal UI refinement.
 
-- Add/edit household members with adult/child roles, visual colours and app-user flags.
-- Mark which app user a particular Safari/Home Screen copy represents.
-- Split a dinner or lunch so different household members can have different meals.
-- Share/import household snapshots containing people, meals, plans, regulars and shopping state.
-- Snapshot imports merge newer records and independent week-plan/shopping fields rather than blindly replacing the whole app.
-- Keeps lightweight week sharing and full backup/restore as secondary tools.
-- Migrates existing v1.x plans into the household-aware data structure without clearing them.
+- Normal dinner/lunch rows now stack the meal label above the meal name for more room.
+- Replaces the awkward Split pill with a compact `All` audience dropdown on the right.
+- Split assignments show only household-member initial circles, not names/groups.
+- Removes the card-level Unsplit control; a split person can rejoin the original meal from their meal picker.
+- Removes the unintended green-tinted meal and split-row backgrounds.
+- Applies the same behaviour to dinner and lunch.
 
-This remains fully local/offline and server-free. The household IDs, member identities, timestamps and merge model are groundwork for later automatic Firebase sync.
+No household, meal-plan or shopping data is reset by this update.
