@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.11";
+const APP_VERSION = "1.0.12";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -17,7 +17,7 @@ const UNITS = ["", "pack", "packs", "g", "kg", "ml", "l", "pint", "pints", "tbsp
 const NO_MEAL = "__none__";
 const DEFAULT_WEEK_START_DAY = 5; // Friday
 const BUNDLED_CONTENT_VERSION = 1;
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 const MEMBER_COLORS = ["sage", "terracotta", "blue", "gold", "rose", "plum"];
 
 const $ = selector => document.querySelector(selector);
@@ -179,6 +179,33 @@ function normaliseWeek(week, key) {
   syncLegacyWeekSlots(clean);
   delete clean.monday;
   return clean;
+}
+
+
+function normaliseSavedWeek(savedWeek, index = 0) {
+  if (!savedWeek || typeof savedWeek !== "object") return null;
+  const now = new Date().toISOString();
+  const stamp = savedWeek.updatedAt || savedWeek.createdAt || now;
+  const rawSlots = savedWeek.slots && typeof savedWeek.slots === "object" ? savedWeek.slots : {};
+  const normalisePeriod = rawPeriod => Array.from({ length: 7 }, (_, dayIndex) => {
+    const rawAssignments = Array.isArray(rawPeriod?.[dayIndex]) ? rawPeriod[dayIndex] : [];
+    return rawAssignments.map(raw => normaliseAssignment(raw, stamp)).filter(Boolean);
+  });
+  return {
+    id: savedWeek.id || uid("savedweek"),
+    name: normaliseName(savedWeek.name) || `Saved week ${index + 1}`,
+    weekStartDay: Number.isInteger(Number(savedWeek.weekStartDay)) ? Number(savedWeek.weekStartDay) : DEFAULT_WEEK_START_DAY,
+    sourceStartDate: savedWeek.sourceStartDate || null,
+    slots: {
+      dinner: normalisePeriod(rawSlots.dinner),
+      lunch: normalisePeriod(rawSlots.lunch)
+    },
+    regularItemIds: Array.isArray(savedWeek.regularItemIds) ? Array.from(new Set(savedWeek.regularItemIds.filter(Boolean))) : [],
+    createdAt: savedWeek.createdAt || stamp,
+    updatedAt: stamp,
+    updatedBy: savedWeek.updatedBy || null,
+    deletedAt: savedWeek.deletedAt || null
+  };
 }
 
 function syncLegacyWeekSlots(week) {
@@ -366,6 +393,7 @@ function seedData() {
     items,
     meals,
     weeks: {},
+    savedWeeks: [],
     settings: { hideChecked: false, lastTab: "week", weekStartDay: DEFAULT_WEEK_START_DAY, currentMemberId: null }
   };
   return applyBundledContent(seeded);
@@ -434,6 +462,10 @@ function prepareDataObject(parsed) {
   } else {
     Object.entries(clean.weeks).forEach(([key, week]) => { clean.weeks[key] = normaliseWeek(week, key); });
   }
+
+  clean.savedWeeks = Array.isArray(clean.savedWeeks)
+    ? clean.savedWeeks.map(normaliseSavedWeek).filter(Boolean)
+    : [];
 
   clean.items = clean.items.map(item => ({
     ...item,
@@ -543,6 +575,8 @@ function findMember(id) { return activeMembers().find(member => member.id === id
 function findMeal(id) { return data.meals.find(meal => meal.id === id && !meal.deletedAt) || null; }
 function findItem(id) { return data.items.find(item => item.id === id && !item.deletedAt) || null; }
 function findItemByName(name) { const key = keyName(name); return data.items.find(item => !item.deletedAt && keyName(item.name) === key) || null; }
+function activeSavedWeeks(source = data) { return (source?.savedWeeks || []).filter(savedWeek => !savedWeek.deletedAt); }
+function findSavedWeek(id) { return activeSavedWeeks().find(savedWeek => savedWeek.id === id) || null; }
 
 function ensureItem(name, category = "Other", regular = false) {
   const clean = normaliseName(name);
@@ -1462,7 +1496,8 @@ function buildHouseholdPayload() {
     household: clone(data.household),
     items: clone(data.items),
     meals: clone(data.meals),
-    weeks: clone(data.weeks)
+    weeks: clone(data.weeks),
+    savedWeeks: clone(data.savedWeeks || [])
   };
 }
 
@@ -1508,12 +1543,14 @@ function adoptHouseholdPayload(payload) {
     items: payload.items,
     meals: payload.meals,
     weeks: payload.weeks,
+    savedWeeks: payload.savedWeeks || [],
     settings: { ...data.settings, currentMemberId: null, weekStartDay: payload.household.weekStartDay }
   });
   data.household = prepared.household;
   data.items = prepared.items;
   data.meals = prepared.meals;
   data.weeks = prepared.weeks;
+  data.savedWeeks = prepared.savedWeeks;
   data.settings.weekStartDay = prepared.household.weekStartDay;
   data.settings.currentMemberId = null;
 }
@@ -1561,6 +1598,7 @@ function mergeHouseholdPayload(payload) {
   }
   data.items = mergeRecordArray(data.items, payload.items || []);
   data.meals = mergeRecordArray(data.meals, payload.meals || []);
+  data.savedWeeks = mergeRecordArray(data.savedWeeks || [], (payload.savedWeeks || []).map(normaliseSavedWeek).filter(Boolean));
   Object.entries(payload.weeks || {}).forEach(([key, incomingWeek]) => {
     const localWeek = data.weeks[key];
     data.weeks[key] = localWeek ? mergeWeekRecord(localWeek, incomingWeek, key) : normaliseWeek(clone(incomingWeek), key);
@@ -1743,6 +1781,214 @@ async function importSharedWeekFile(file) {
   }
 }
 
+
+function weekHasReusableContent(week) {
+  return weekHasMealPlan(week) || !!week?.regularItemIds?.length;
+}
+
+function freshAssignments(assignments, stamp) {
+  return (assignments || []).map(assignment => makeAssignment(
+    assignment.mealId,
+    Array.isArray(assignment.memberIds) ? [...assignment.memberIds] : null,
+    stamp,
+    null,
+    currentMemberId()
+  ));
+}
+
+function remapReusableSlots(rawSlots, sourceWeekStartDay, targetWeekStartDay, stamp) {
+  const mapped = {
+    dinner: Array.from({ length: 7 }, () => []),
+    lunch: Array.from({ length: 7 }, () => [])
+  };
+  const sourceStart = Number.isInteger(Number(sourceWeekStartDay)) ? Number(sourceWeekStartDay) : targetWeekStartDay;
+  ["dinner", "lunch"].forEach(slotType => {
+    for (let sourceIndex = 0; sourceIndex < 7; sourceIndex += 1) {
+      const weekday = (sourceStart + sourceIndex) % 7;
+      const targetIndex = (weekday - targetWeekStartDay + 7) % 7;
+      mapped[slotType][targetIndex] = freshAssignments(rawSlots?.[slotType]?.[sourceIndex], stamp);
+    }
+  });
+  return mapped;
+}
+
+function applyReusableWeek(targetWeek, slots, regularItemIds, sourceWeekStartDay) {
+  const stamp = new Date().toISOString();
+  targetWeek.slots = remapReusableSlots(slots, sourceWeekStartDay, data.settings.weekStartDay, stamp);
+  targetWeek.regularItemIds = Array.from(new Set((regularItemIds || []).filter(id => !!findItem(id))));
+  targetWeek.checkedItemIds = [];
+  targetWeek.notNeededItemIds = [];
+  for (let index = 0; index < 7; index += 1) {
+    touchWeekField(targetWeek, "dinner", index, stamp);
+    touchWeekField(targetWeek, "lunch", index, stamp);
+  }
+  touchWeekField(targetWeek, "regularItemIds", null, stamp);
+  touchWeekField(targetWeek, "checkedItemIds", null, stamp);
+  touchWeekField(targetWeek, "notNeededItemIds", null, stamp);
+  syncLegacyWeekSlots(targetWeek);
+  return targetWeek;
+}
+
+function updateCopyWeekTarget() {
+  const input = $("#copy-week-date");
+  const label = $("#copy-week-target");
+  if (!input?.value) {
+    label.textContent = "";
+    return;
+  }
+  const targetStart = startOfWeek(fromDateKey(input.value), data.settings.weekStartDay);
+  label.textContent = `Destination: ${formatWeekRange(targetStart)}`;
+}
+
+function openCopyWeek() {
+  const sourceWeek = getWeek();
+  if (!weekHasReusableContent(sourceWeek)) {
+    showToast("There is nothing to copy yet");
+    return;
+  }
+  $("#copy-week-from").textContent = formatWeekRange(selectedWeekStart);
+  $("#copy-week-date").value = localDateKey(addDays(selectedWeekStart, 7));
+  updateCopyWeekTarget();
+  closeOverlay("settings-overlay");
+  openOverlay("copy-week-overlay");
+}
+
+function copyCurrentWeek(event) {
+  event.preventDefault();
+  const rawDate = $("#copy-week-date").value;
+  if (!rawDate) return;
+  const sourceStart = startOfWeek(selectedWeekStart, data.settings.weekStartDay);
+  const sourceKey = localDateKey(sourceStart);
+  const sourceWeek = getWeek(sourceStart);
+  if (!weekHasReusableContent(sourceWeek)) {
+    closeOverlay("copy-week-overlay");
+    showToast("There is nothing to copy yet");
+    return;
+  }
+  const targetStart = startOfWeek(fromDateKey(rawDate), data.settings.weekStartDay);
+  const targetKey = localDateKey(targetStart);
+  if (targetKey === sourceKey) {
+    showToast("Choose a different week");
+    return;
+  }
+  const targetWeek = data.weeks[targetKey] ? normaliseWeek(data.weeks[targetKey], targetKey) : emptyWeek(targetKey);
+  if (weekHasReusableContent(targetWeek) && !confirm(`The destination week (${formatWeekRange(targetStart)}) already has meals or selected regulars. Replace those with this week's plan?`)) return;
+  applyReusableWeek(targetWeek, sourceWeek.slots, sourceWeek.regularItemIds, data.settings.weekStartDay);
+  data.weeks[targetKey] = targetWeek;
+  selectedWeekStart = targetStart;
+  saveData();
+  renderAll();
+  closeOverlay("copy-week-overlay");
+  switchTab("week");
+  showToast("Week copied");
+}
+
+function openSaveWeek() {
+  const week = getWeek();
+  if (!weekHasReusableContent(week)) {
+    showToast("There is nothing to save yet");
+    return;
+  }
+  $("#saved-week-name").value = formatWeekRange(selectedWeekStart);
+  closeOverlay("settings-overlay");
+  openOverlay("save-week-overlay");
+  requestAnimationFrame(() => $("#saved-week-name")?.select());
+}
+
+function saveCurrentWeekTemplate(event) {
+  event.preventDefault();
+  const week = getWeek();
+  if (!weekHasReusableContent(week)) {
+    closeOverlay("save-week-overlay");
+    showToast("There is nothing to save yet");
+    return;
+  }
+  const stamp = new Date().toISOString();
+  const name = normaliseName($("#saved-week-name").value) || formatWeekRange(selectedWeekStart);
+  const savedWeek = normaliseSavedWeek({
+    id: uid("savedweek"),
+    name,
+    weekStartDay: data.settings.weekStartDay,
+    sourceStartDate: week.startDate,
+    slots: clone(week.slots),
+    regularItemIds: clone(week.regularItemIds),
+    createdAt: stamp,
+    updatedAt: stamp,
+    updatedBy: currentMemberId()
+  }, (data.savedWeeks || []).length);
+  if (!Array.isArray(data.savedWeeks)) data.savedWeeks = [];
+  data.savedWeeks.push(savedWeek);
+  touchSharedState(stamp, savedWeek.updatedBy);
+  saveData();
+  closeOverlay("save-week-overlay");
+  showToast("Week saved");
+}
+
+function savedWeekSummary(savedWeek) {
+  const dinners = savedWeek.slots.dinner.filter(assignments => assignments.length).length;
+  const lunches = savedWeek.slots.lunch.filter(assignments => assignments.length).length;
+  const regulars = savedWeek.regularItemIds.length;
+  const parts = [];
+  if (dinners) parts.push(`${dinners} dinner${dinners === 1 ? "" : "s"}`);
+  if (lunches) parts.push(`${lunches} lunch${lunches === 1 ? "" : "es"}`);
+  if (regulars) parts.push(`${regulars} regular${regulars === 1 ? "" : "s"}`);
+  return parts.join(" · ") || "Empty template";
+}
+
+function renderSavedWeeks() {
+  const list = $("#saved-week-list");
+  if (!list) return;
+  $("#saved-weeks-target").textContent = formatWeekRange(selectedWeekStart);
+  const saved = activeSavedWeeks().slice().sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+  if (!saved.length) {
+    list.innerHTML = `<div class="empty-state compact-empty"><strong>No saved weeks yet</strong><span>Save a week you like, then reuse it here.</span></div>`;
+    return;
+  }
+  list.innerHTML = saved.map(savedWeek => `
+    <article class="saved-week-card">
+      <div class="saved-week-copy">
+        <strong>${escapeHtml(savedWeek.name)}</strong>
+        <small>${escapeHtml(savedWeekSummary(savedWeek))}</small>
+      </div>
+      <div class="saved-week-actions">
+        <button class="secondary-button saved-week-use" type="button" data-use-saved-week="${savedWeek.id}">Use</button>
+        <button class="saved-week-delete" type="button" data-delete-saved-week="${savedWeek.id}" aria-label="Delete ${escapeHtml(savedWeek.name)}">Delete</button>
+      </div>
+    </article>`).join("");
+}
+
+function openSavedWeeks() {
+  closeOverlay("settings-overlay");
+  renderSavedWeeks();
+  openOverlay("saved-weeks-overlay");
+}
+
+function useSavedWeek(id) {
+  const savedWeek = findSavedWeek(id);
+  if (!savedWeek) return;
+  const targetWeek = getWeek();
+  if (weekHasReusableContent(targetWeek) && !confirm(`Replace the meals and selected regulars for ${formatWeekRange(selectedWeekStart)} with “${savedWeek.name}”?`)) return;
+  applyReusableWeek(targetWeek, savedWeek.slots, savedWeek.regularItemIds, savedWeek.weekStartDay);
+  data.weeks[weekKey()] = targetWeek;
+  saveData();
+  renderAll();
+  closeOverlay("saved-weeks-overlay");
+  switchTab("week");
+  showToast("Saved week applied");
+}
+
+function deleteSavedWeek(id) {
+  const savedWeek = findSavedWeek(id);
+  if (!savedWeek) return;
+  if (!confirm(`Delete the saved week “${savedWeek.name}”?`)) return;
+  const stamp = new Date().toISOString();
+  savedWeek.deletedAt = stamp;
+  touchRecord(savedWeek, stamp);
+  saveData();
+  renderSavedWeeks();
+  showToast("Saved week deleted");
+}
+
 function openWeekSettings() {
   $("#week-start-day").value = String(data.settings.weekStartDay);
   openOverlay("settings-overlay");
@@ -1887,6 +2133,10 @@ function bindEvents() {
     if (edit) return openMealEditor(edit.dataset.editMeal);
     const editMember = event.target.closest("[data-edit-member]");
     if (editMember) return openMemberEditor(editMember.dataset.editMember);
+    const useSavedWeekButton = event.target.closest("[data-use-saved-week]");
+    if (useSavedWeekButton) return useSavedWeek(useSavedWeekButton.dataset.useSavedWeek);
+    const deleteSavedWeekButton = event.target.closest("[data-delete-saved-week]");
+    if (deleteSavedWeekButton) return deleteSavedWeek(deleteSavedWeekButton.dataset.deleteSavedWeek);
     const memberColor = event.target.closest("[data-member-color]");
     if (memberColor) return renderMemberColorChoices(memberColor.dataset.memberColor);
     const removeExtra = event.target.closest("[data-remove-extra]");
@@ -1920,6 +2170,12 @@ function bindEvents() {
   $("#data-sharing").addEventListener("click", openDataSharing);
   $("#week-settings").addEventListener("click", openWeekSettings);
   $("#settings-form").addEventListener("submit", saveWeekSettings);
+  $("#copy-week-plan").addEventListener("click", openCopyWeek);
+  $("#copy-week-date").addEventListener("change", updateCopyWeekTarget);
+  $("#copy-week-form").addEventListener("submit", copyCurrentWeek);
+  $("#save-week-plan").addEventListener("click", openSaveWeek);
+  $("#save-week-form").addEventListener("submit", saveCurrentWeekTemplate);
+  $("#open-saved-weeks").addEventListener("click", openSavedWeeks);
   $("#move-week-plan").addEventListener("click", openMoveWeek);
   $("#move-week-date").addEventListener("change", updateMoveWeekTarget);
   $("#move-week-form").addEventListener("submit", moveCurrentWeekPlan);

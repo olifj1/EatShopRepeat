@@ -828,3 +828,48 @@ body.modal-open { overflow: hidden; }
   .audience-initials-only .member-avatar.small:nth-child(n+5) { display: none; }
   .household-card-top small { max-width: 190px; }
 }
+
+
+/* v1.0.12 reusable weeks */
+.settings-section-label {
+  margin: 17px 3px 1px;
+  color: var(--gh-muted);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .12em;
+}
+.saved-week-list { display: grid; gap: 8px; }
+.saved-week-card {
+  min-height: 66px;
+  padding: 10px 10px 10px 12px;
+  border: 1.5px solid var(--gh-line);
+  border-radius: 17px;
+  background: rgba(247,241,235,.72);
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+.saved-week-copy { min-width: 0; }
+.saved-week-copy strong,
+.saved-week-copy small { display: block; }
+.saved-week-copy strong {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.saved-week-copy small { margin-top: 4px; color: var(--gh-muted); font-size: 10px; line-height: 1.25; }
+.saved-week-actions { display: flex; align-items: center; gap: 4px; }
+.saved-week-use { min-height: 38px; padding: 7px 12px; font-size: 12px; }
+.saved-week-delete {
+  min-height: 38px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--gh-muted);
+  font-size: 10px;
+  font-weight: 760;
+}
