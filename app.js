@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.12";
+const APP_VERSION = "1.0.15";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -17,7 +17,7 @@ const UNITS = ["", "pack", "packs", "g", "kg", "ml", "l", "pint", "pints", "tbsp
 const NO_MEAL = "__none__";
 const DEFAULT_WEEK_START_DAY = 5; // Friday
 const BUNDLED_CONTENT_VERSION = 1;
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 const MEMBER_COLORS = ["sage", "terracotta", "blue", "gold", "rose", "plum"];
 
 const $ = selector => document.querySelector(selector);
@@ -424,6 +424,7 @@ function normaliseMember(member, index = 0) {
     name,
     role: member.role === "child" ? "child" : "adult",
     appUser: !!member.appUser,
+    email: String(member.email || "").trim().toLowerCase(),
     color: MEMBER_COLORS.includes(member.color) ? member.color : MEMBER_COLORS[index % MEMBER_COLORS.length],
     createdAt: member.createdAt || member.updatedAt || now,
     updatedAt: member.updatedAt || member.createdAt || now,
@@ -547,12 +548,13 @@ function touchWeekField(week, field, index = null, stamp = new Date().toISOStrin
   return stamp;
 }
 
-function saveData() {
+function saveData(options = {}) {
   data.appVersion = APP_VERSION;
   data.schemaVersion = SCHEMA_VERSION;
   if (data.household) data.settings.weekStartDay = data.household.weekStartDay;
   Object.values(data.weeks || {}).forEach(syncLegacyWeekSlots);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  if (!options.skipCloud) window.dispatchEvent(new CustomEvent("mealplanner:localchange"));
 }
 
 function weekKey(start = selectedWeekStart) {
@@ -1229,7 +1231,7 @@ function renderHouseholdManager() {
   $("#household-member-list").innerHTML = members.length ? members.map(member => `
     <div class="household-member-row">
       ${memberAvatar(member)}
-      <div class="household-member-main"><strong>${escapeHtml(member.name)}</strong><span>${member.role === "child" ? "Child" : "Adult"}${member.appUser ? " · App user" : ""}${member.id === currentId ? " · This copy" : ""}</span></div>
+      <div class="household-member-main"><strong>${escapeHtml(member.name)}</strong><span>${member.role === "child" ? "Child" : "Adult"}${member.appUser ? " · App user" : ""}${member.id === currentId ? " · This copy" : ""}${member.appUser && member.email ? ` · ${escapeHtml(member.email)}` : ""}</span></div>
       <button class="member-edit-button" type="button" data-edit-member="${escapeHtml(member.id)}" aria-label="Edit ${escapeHtml(member.name)}">•••</button>
     </div>`).join("") : `<div class="empty-state compact-empty"><strong>No people yet</strong><p>Add everyone you might plan meals for.</p></div>`;
 }
@@ -1268,6 +1270,8 @@ function openMemberEditor(memberId = null) {
   $("#member-name").value = member?.name || "";
   $("#member-role").value = member?.role || "adult";
   $("#member-app-user").checked = !!member?.appUser;
+  $("#member-email").value = member?.email || "";
+  $("#member-email-wrap").hidden = !member?.appUser;
   $("#member-this-device").checked = !!member && data.settings.currentMemberId === member.id;
   $("#member-this-device").disabled = !member?.appUser;
   $("#delete-member").hidden = !member;
@@ -1290,6 +1294,7 @@ function saveMember(event) {
   member.name = name;
   member.role = $("#member-role").value === "child" ? "child" : "adult";
   member.appUser = $("#member-app-user").checked;
+  member.email = member.appUser ? String($("#member-email").value || "").trim().toLowerCase() : "";
   member.color = MEMBER_COLORS.includes($("#member-color").value) ? $("#member-color").value : nextMemberColor();
   const wasCurrentDeviceMember = data.settings.currentMemberId === member.id;
   const markThisCopy = member.appUser && $("#member-this-device").checked;
@@ -1406,6 +1411,201 @@ function rejoinOriginalMeal() {
   closeOverlay("meal-picker-overlay");
   renderAll();
   showToast("Rejoined original meal");
+}
+
+
+let cloudUiState = { phase: "loading", email: "", householdName: "", detail: "Loading cloud sync…", foundHouseholdId: null };
+
+function sharedDataSignature() {
+  return JSON.stringify({
+    household: data.household,
+    items: data.items,
+    meals: data.meals,
+    weeks: data.weeks,
+    savedWeeks: data.savedWeeks || []
+  });
+}
+
+function cloudInviteEmails() {
+  return Array.from(new Set(appUserMembers().map(member => String(member.email || "").trim().toLowerCase()).filter(Boolean)));
+}
+
+function renderCloudStatus() {
+  const badge = $("#sync-badge");
+  const state = $("#cloud-sync-state");
+  const detail = $("#cloud-sync-detail");
+  const account = $("#cloud-account");
+  if (!badge || !state || !detail || !account) return;
+
+  const phase = cloudUiState.phase || "signedOut";
+  const labels = {
+    loading: "Connecting…",
+    signedOut: "Local only",
+    verify: "Verify email",
+    signedIn: "Ready to sync",
+    inviteFound: "Household found",
+    connected: "Synced",
+    syncing: "Syncing…",
+    offline: "Offline",
+    error: "Sync issue"
+  };
+  badge.textContent = labels[phase] || "Local only";
+  badge.className = `manual-sync-badge sync-badge sync-${phase}`;
+  state.textContent = labels[phase] || "Local only";
+  detail.textContent = cloudUiState.detail || "";
+  account.textContent = cloudUiState.email ? `Signed in as ${cloudUiState.email}` : "";
+
+  $("#cloud-auth-open").hidden = phase !== "signedOut" && phase !== "error";
+  $("#cloud-verify").hidden = phase !== "verify";
+  $("#cloud-start").hidden = phase !== "signedIn";
+  $("#cloud-join").hidden = phase !== "inviteFound";
+  $("#cloud-sync-now").hidden = phase !== "connected" && phase !== "offline";
+  $("#cloud-signout").hidden = !cloudUiState.email;
+  if (phase === "inviteFound" && cloudUiState.householdName) {
+    $("#cloud-join").textContent = `Join ${cloudUiState.householdName}`;
+  }
+}
+
+function setCloudUiState(next) {
+  cloudUiState = { ...cloudUiState, ...next };
+  renderCloudStatus();
+}
+
+function cloudSetHouseholdId(householdId) {
+  data.settings.cloudHouseholdId = householdId || null;
+  saveData({ skipCloud: true });
+}
+
+function cloudAssignSignedInMember(email) {
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  if (!cleanEmail) return;
+  let member = appUserMembers().find(entry => entry.email === cleanEmail) || null;
+  const current = findMember(data.settings.currentMemberId);
+  if (!member && current?.appUser && !current.email) {
+    current.email = cleanEmail;
+    touchRecord(current);
+    member = current;
+  }
+  if (!member) {
+    const candidates = appUserMembers().filter(entry => !entry.email);
+    if (candidates.length === 1) {
+      candidates[0].email = cleanEmail;
+      touchRecord(candidates[0]);
+      member = candidates[0];
+    }
+  }
+  if (member) data.settings.currentMemberId = member.id;
+  saveData({ skipCloud: true });
+  renderAll();
+}
+
+function cloudAdoptPayloads(payloads, householdId, authEmail) {
+  const valid = (payloads || []).filter(payload => payload?.household?.id === householdId);
+  if (!valid.length) throw new Error("This household does not have a cloud snapshot yet.");
+  adoptHouseholdPayload(valid[0]);
+  valid.slice(1).forEach(payload => mergeHouseholdPayload(payload));
+  data.settings.cloudHouseholdId = householdId;
+  const cleanEmail = String(authEmail || "").trim().toLowerCase();
+  const matching = appUserMembers().find(member => member.email === cleanEmail);
+  data.settings.currentMemberId = matching?.id || null;
+  selectedWeekStart = startOfWeek(new Date(), data.household.weekStartDay);
+  saveData({ skipCloud: true });
+  renderAll();
+  renderHouseholdSummary();
+}
+
+function cloudMergePayload(payload) {
+  if (!payload?.household?.id || payload.household.id !== data.household.id) return false;
+  const before = sharedDataSignature();
+  mergeHouseholdPayload(payload);
+  const after = sharedDataSignature();
+  if (after === before) return false;
+  selectedWeekStart = startOfWeek(selectedWeekStart, data.household.weekStartDay);
+  saveData({ skipCloud: true });
+  renderAll();
+  renderHouseholdSummary();
+  return true;
+}
+
+window.MealPlannerCloudAdapter = {
+  getPayload: () => buildHouseholdPayload(),
+  getHouseholdId: () => data.household?.id || null,
+  getCloudHouseholdId: () => data.settings?.cloudHouseholdId || null,
+  getHouseholdName: () => householdDisplayName(),
+  getInviteEmails: () => cloudInviteEmails(),
+  getCurrentMemberId: () => currentMemberId(),
+  setHouseholdId: cloudSetHouseholdId,
+  assignSignedInMember: cloudAssignSignedInMember,
+  adoptPayloads: cloudAdoptPayloads,
+  mergePayload: cloudMergePayload,
+  setStatus: setCloudUiState
+};
+
+function openCloudAuth() {
+  $("#cloud-email").value = cloudUiState.email || "";
+  $("#cloud-password").value = "";
+  closeOverlay("data-overlay");
+  openOverlay("cloud-auth-overlay");
+}
+
+async function cloudSignIn(event) {
+  event.preventDefault();
+  const email = String($("#cloud-email").value || "").trim();
+  const password = $("#cloud-password").value;
+  try {
+    await window.MealPlannerFirebase?.signIn(email, password);
+    closeOverlay("cloud-auth-overlay");
+    showToast("Signed in");
+  } catch (error) {
+    alert(window.MealPlannerFirebase?.friendlyError(error) || error?.message || "Sign in failed.");
+  }
+}
+
+async function cloudCreateAccount() {
+  const email = String($("#cloud-email").value || "").trim();
+  const password = $("#cloud-password").value;
+  try {
+    await window.MealPlannerFirebase?.createAccount(email, password);
+    closeOverlay("cloud-auth-overlay");
+    showToast("Verification email sent");
+  } catch (error) {
+    alert(window.MealPlannerFirebase?.friendlyError(error) || error?.message || "Account creation failed.");
+  }
+}
+
+async function cloudResetPassword() {
+  const email = String($("#cloud-email").value || "").trim();
+  if (!email) return alert("Enter your email address first.");
+  try {
+    await window.MealPlannerFirebase?.resetPassword(email);
+    showToast("Password reset email sent");
+  } catch (error) {
+    alert(window.MealPlannerFirebase?.friendlyError(error) || error?.message || "Could not send reset email.");
+  }
+}
+
+async function startCloudSync() {
+  if (!activeMembers().length) {
+    showToast("Set up your household first");
+    return;
+  }
+  if (!confirm(`Start automatic sync for “${householdDisplayName()}” using the data in this copy? Other signed-in copies can then join this household.`)) return;
+  try {
+    await window.MealPlannerFirebase?.startHousehold();
+  } catch (error) {
+    alert(window.MealPlannerFirebase?.friendlyError(error) || error?.message || "Could not start cloud sync.");
+  }
+}
+
+async function joinCloudHousehold() {
+  const name = cloudUiState.householdName || "the shared household";
+  if (!confirm(`Join “${name}”? The cloud household will replace the household data in this copy. You can export a full backup first if needed.`)) return;
+  try {
+    await window.MealPlannerFirebase?.joinFoundHousehold();
+    showToast("Shared household joined");
+  } catch (error) {
+    alert(window.MealPlannerFirebase?.friendlyError(error) || error?.message || "Could not join the household.");
+  }
 }
 
 function fileSafeDate(value = new Date()) {
@@ -1994,6 +2194,46 @@ function openWeekSettings() {
   openOverlay("settings-overlay");
 }
 
+function clearCurrentWeek() {
+  const week = getWeek();
+  const hasContent = weekHasMealPlan(week) ||
+    week.regularItemIds.length ||
+    week.extras.length ||
+    week.checkedItemIds.length ||
+    week.notNeededItemIds.length;
+
+  if (!hasContent) {
+    closeOverlay("settings-overlay");
+    showToast("This week is already clear");
+    return;
+  }
+
+  if (!confirm(`Clear ${formatWeekRange(selectedWeekStart)}? This removes its meals and resets its shopping list. Saved weeks and your meal library are not affected.`)) return;
+
+  const stamp = new Date().toISOString();
+  week.slots = {
+    dinner: Array.from({ length: 7 }, () => []),
+    lunch: Array.from({ length: 7 }, () => [])
+  };
+  week.regularItemIds = [];
+  week.extras = [];
+  week.checkedItemIds = [];
+  week.notNeededItemIds = [];
+
+  for (let index = 0; index < 7; index += 1) {
+    touchWeekField(week, "dinner", index, stamp);
+    touchWeekField(week, "lunch", index, stamp);
+  }
+  ["regularItemIds", "extras", "checkedItemIds", "notNeededItemIds"].forEach(field => touchWeekField(week, field, null, stamp));
+  syncLegacyWeekSlots(week);
+  data.weeks[weekKey()] = week;
+  saveData();
+  renderAll();
+  closeOverlay("settings-overlay");
+  switchTab("week");
+  showToast("Week cleared");
+}
+
 function weekHasMealPlan(week) {
   if (!week) return false;
   const clean = normaliseWeek(week, week.startDate || "");
@@ -2179,8 +2419,7 @@ function bindEvents() {
   $("#move-week-plan").addEventListener("click", openMoveWeek);
   $("#move-week-date").addEventListener("change", updateMoveWeekTarget);
   $("#move-week-form").addEventListener("submit", moveCurrentWeekPlan);
-  $("#today-week").addEventListener("click", () => { selectedWeekStart = startOfWeek(new Date(), data.settings.weekStartDay); renderWeek(); renderShop(); });
-  $("#week-to-shop").addEventListener("click", () => switchTab("shop"));
+  $("#clear-week").addEventListener("click", clearCurrentWeek);
   $("#clear-day").addEventListener("click", () => chooseMealForDay(null));
   $("#no-dinner").addEventListener("click", () => chooseMealForDay(NO_MEAL));
   $("#picker-search").addEventListener("input", renderPicker);
@@ -2208,6 +2447,16 @@ function bindEvents() {
   $("#manage-regulars").addEventListener("click", () => { renderRegularManager(); openOverlay("regular-manager-overlay"); });
   $("#regular-add-form").addEventListener("submit", addRegularItem);
 
+  $("#cloud-auth-open").addEventListener("click", openCloudAuth);
+  $("#cloud-auth-form").addEventListener("submit", cloudSignIn);
+  $("#cloud-create-account").addEventListener("click", cloudCreateAccount);
+  $("#cloud-reset-password").addEventListener("click", cloudResetPassword);
+  $("#cloud-verify").addEventListener("click", () => window.MealPlannerFirebase?.refreshVerification());
+  $("#cloud-start").addEventListener("click", startCloudSync);
+  $("#cloud-join").addEventListener("click", joinCloudHousehold);
+  $("#cloud-sync-now").addEventListener("click", () => window.MealPlannerFirebase?.syncNow());
+  $("#cloud-signout").addEventListener("click", () => window.MealPlannerFirebase?.signOut());
+
   $("#manage-household").addEventListener("click", openHouseholdManager);
   $("#household-name-form").addEventListener("submit", saveHouseholdName);
   $("#add-household-member").addEventListener("click", () => openMemberEditor());
@@ -2215,6 +2464,7 @@ function bindEvents() {
   $("#delete-member").addEventListener("click", deleteMember);
   $("#member-app-user").addEventListener("change", event => {
     $("#member-this-device").disabled = !event.target.checked;
+    $("#member-email-wrap").hidden = !event.target.checked;
     if (!event.target.checked) $("#member-this-device").checked = false;
   });
   $("#share-household").addEventListener("click", shareHouseholdUpdate);
@@ -2299,6 +2549,7 @@ function init() {
   populateCategorySelect($("#shop-item-category"));
   bindEvents();
   renderAll();
+  renderCloudStatus();
   setupInstall();
   switchTab(data.settings.lastTab || "week");
   registerServiceWorker();

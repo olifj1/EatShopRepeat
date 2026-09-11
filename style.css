@@ -175,7 +175,6 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 }
 .settings-note { margin: 9px 2px 0; color: var(--gh-muted); font-size: 12px; line-height: 1.4; }
 
-.week-actions { display: grid; grid-template-columns: 1fr 1.25fr; gap: 8px; margin-top: 12px; }
 .primary-button, .secondary-button, .small-add-button, .danger-quiet-button, .text-button {
   border: 0;
   border-radius: 15px;
@@ -873,3 +872,33 @@ body.modal-open { overflow: hidden; }
   font-size: 10px;
   font-weight: 760;
 }
+
+
+/* v1.0.15 automatic household sync */
+.cloud-sync-card { border-color: color-mix(in srgb, var(--blue) 46%, var(--gh-line)); }
+.cloud-status-row {
+  min-height: 46px;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(37,43,51,.10);
+  border-radius: 14px;
+  background: rgba(247,241,235,.66);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.cloud-status-dot { width: 9px; height: 9px; flex: 0 0 9px; border-radius: 50%; background: var(--gh-muted); opacity: .65; }
+.cloud-status-row strong, .cloud-status-row small { display: block; }
+.cloud-status-row strong { font-size: 13px; }
+.cloud-status-row small { margin-top: 2px; color: var(--gh-muted); font-size: 10px; overflow-wrap: anywhere; }
+.cloud-action-stack { display: grid; gap: 7px; margin-top: 10px; }
+.cloud-action-stack .full-width { margin-top: 0; }
+.cloud-signout, .cloud-reset { justify-self: center; min-height: 34px; }
+.cloud-auth-primary { margin-top: 15px; margin-bottom: 7px; }
+.member-email-note { margin: 5px 2px 0; }
+.sync-connected { color: #5f755a; }
+.sync-syncing, .sync-loading { color: #66778a; }
+.sync-verify { color: #9a7133; }
+.sync-error { color: #9b5d55; }
+.sync-offline { color: var(--gh-muted); }
+.cloud-sync-card:has(#cloud-sync-state:is(:not(:empty))) .cloud-status-dot { background: #6f8069; }

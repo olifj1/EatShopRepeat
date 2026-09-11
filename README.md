@@ -1,3 +1,11 @@
-# Meal Planner v1.0.12
+# MealPlanner v1.0.15
 
-Adds reusable weekly planning: copy the current week to another week, save household week templates, and apply saved weeks later. Saved weeks include dinners, lunches, split-member assignments and selected regulars, while one-offs and bought/not-needed state stay fresh. Saved weeks are included in household update snapshots for future shared syncing.
+Adds optional Firebase household sync while keeping the existing local/offline-first behaviour.
+
+- Email/password Firebase accounts with email verification.
+- Syncs the same household across Safari, Home Screen installs and invited app users.
+- Uses each installation's own mergeable household snapshot to avoid devices overwriting one another while offline.
+- App-user household members can store a sign-in email for invitations.
+- Existing manual household snapshots and full backup/restore remain available as fallbacks.
+
+Before deploying this release, publish the accompanying household-only Firestore security rules supplied with the release instructions.
