@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.18";
+const APP_VERSION = "1.0.19";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",

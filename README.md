@@ -1,8 +1,7 @@
-# MealPlanner v1.0.18
+# MealPlanner v1.0.19
 
-Firebase snapshot compatibility fix.
+Foreground sync responsiveness update.
 
-- Encodes nested household arrays into a Firestore-safe map format before cloud upload.
-- Decodes that format transparently when joining or receiving household updates.
-- Keeps the existing Firestore security rules unchanged.
-- No local household, meal-plan or shopping data migration is required.
+- Forces an immediate Firebase refresh when Safari or the Home Screen app returns to the foreground.
+- Pushes any locally queued change before pulling the latest household state.
+- Helps iOS copies catch up quickly after being suspended in the background.

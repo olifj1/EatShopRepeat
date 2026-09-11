@@ -290,6 +290,61 @@ function schedulePush(delay = 850) {
   pushTimer = setTimeout(pushNow, delay);
 }
 
+
+let resumeRefreshPromise = null;
+let lastResumeRefreshAt = 0;
+
+async function pullLatestFromServer() {
+  if (!connectedHouseholdId || !currentUser || !verified() || !navigator.onLine) return;
+  const householdId = connectedHouseholdId;
+  const snapshot = await getDocsFromServer(collection(db, "households", householdId, "snapshots"));
+  let changed = false;
+  snapshot.docs.forEach(entry => {
+    const payload = decodeFirestoreValue(entry.data()?.payload);
+    if (!payload?.household?.id || payload.household.id !== householdId) return;
+    try {
+      if (adapter()?.mergePayload?.(payload)) changed = true;
+    } catch (error) {
+      console.warn("Ignored invalid cloud household snapshot during foreground refresh:", error);
+    }
+  });
+  if (changed) schedulePush(180);
+  setStatus({
+    phase: "connected",
+    email: cleanEmail(currentUser?.email),
+    householdName: currentMeta?.name || adapter()?.getHouseholdName?.() || "Household",
+    foundHouseholdId: householdId,
+    detail: "Up to date across connected copies."
+  });
+}
+
+async function refreshAfterResume() {
+  if (!connectedHouseholdId || !currentUser || !verified() || !navigator.onLine) return;
+  const now = Date.now();
+  if (resumeRefreshPromise || now - lastResumeRefreshAt < 900) return resumeRefreshPromise;
+  lastResumeRefreshAt = now;
+  resumeRefreshPromise = (async () => {
+    try {
+      // iOS can suspend a background Safari tab/Home Screen PWA before the
+      // normal debounce fires. Push this installation first, then explicitly
+      // fetch the newest household snapshots from the server instead of waiting
+      // for Firestore's realtime listener to wake naturally.
+      await pushNow();
+      await pullLatestFromServer();
+    } catch (error) {
+      console.warn("Foreground household refresh failed:", error);
+      setStatus({
+        phase: navigator.onLine ? "error" : "offline",
+        email: cleanEmail(currentUser?.email),
+        detail: friendlyError(error)
+      });
+    } finally {
+      resumeRefreshPromise = null;
+    }
+  })();
+  return resumeRefreshPromise;
+}
+
 async function startHousehold() {
   if (!currentUser || !verified()) throw new Error("Verify your email before starting cloud sync.");
   const householdId = adapter()?.getHouseholdId?.();
@@ -458,11 +513,21 @@ window.MealPlannerFirebase = {
 
 window.addEventListener("mealplanner:localchange", () => schedulePush());
 window.addEventListener("online", () => {
-  if (connectedHouseholdId) schedulePush(100);
+  if (connectedHouseholdId) refreshAfterResume();
 });
 window.addEventListener("offline", () => {
   if (connectedHouseholdId) setStatus({ phase: "offline", email: cleanEmail(currentUser?.email), detail: "Offline — changes are saved locally and will sync when connected." });
 });
+
+// iOS suspends background Safari tabs and installed PWAs. When this copy comes
+// back to the foreground, force an immediate push + server refresh so changes
+// made in another copy appear promptly instead of waiting for the listener to
+// reconnect on its own.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refreshAfterResume();
+});
+window.addEventListener("pageshow", () => refreshAfterResume());
+window.addEventListener("focus", () => refreshAfterResume());
 
 useDeviceLanguage(auth);
 onAuthStateChanged(auth, async user => {
