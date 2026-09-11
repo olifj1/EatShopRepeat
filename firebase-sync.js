@@ -20,6 +20,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  getDocsFromServer,
   query,
   where,
   setDoc,
@@ -279,14 +280,62 @@ async function startHousehold() {
 async function joinFoundHousehold() {
   if (!currentUser || !verified() || !foundHousehold?.id) throw new Error("No shared household is waiting for this account.");
   const householdId = foundHousehold.id;
-  const snapshot = await getDocs(collection(db, "households", householdId, "snapshots"));
-  const payloads = snapshot.docs.map(entry => entry.data()?.payload).filter(payload => payload?.household?.id === householdId);
-  if (!payloads.length) throw new Error("The shared household exists but has not uploaded its first data snapshot yet. Open the original copy and tap Sync now.");
+  const householdMeta = { ...foundHousehold };
+  const householdName = foundHousehold.name || "Shared household";
+  const email = cleanEmail(currentUser.email);
+
+  setStatus({
+    phase: "joining",
+    email,
+    householdName,
+    foundHouseholdId: householdId,
+    detail: "Downloading the shared household…"
+  });
+
+  // Joining must use a confirmed server snapshot. A brand-new Home Screen copy
+  // can have an empty persistent Firestore cache even though discovery already
+  // found the parent household. Reading explicitly from the server avoids an
+  // empty/stale local collection making the join appear to do nothing.
+  let snapshot;
+  try {
+    snapshot = await getDocsFromServer(collection(db, "households", householdId, "snapshots"));
+  } catch (error) {
+    setStatus({
+      phase: "inviteFound",
+      email,
+      householdName,
+      foundHouseholdId: householdId,
+      detail: !navigator.onLine
+        ? "You’re offline. Reconnect, then join the household again."
+        : `Could not download the household: ${friendlyError(error)}`
+    });
+    throw error;
+  }
+
+  const payloads = snapshot.docs
+    .map(entry => entry.data()?.payload)
+    .filter(payload => payload?.household?.id === householdId);
+  if (!payloads.length) {
+    setStatus({ phase: "inviteFound", email, householdName, foundHouseholdId: householdId, detail: "The household is available but its first cloud snapshot has not arrived yet." });
+    throw new Error("The shared household exists but has not uploaded its first data snapshot yet. Open the original copy and tap Sync now.");
+  }
+
   adapter()?.adoptPayloads?.(payloads, householdId, currentUser.email);
   adapter()?.assignSignedInMember?.(currentUser.email);
-  await connectHousehold(householdId, foundHousehold);
-  await pushNow();
   foundHousehold = null;
+
+  await connectHousehold(householdId, { ...householdMeta, id: householdId, name: householdName });
+
+  // Give the UI an immediate connected state rather than waiting for the first
+  // realtime listener callback. The listener will then refine sync/offline state.
+  setStatus({
+    phase: "connected",
+    email,
+    householdName,
+    foundHouseholdId: householdId,
+    detail: "Shared household downloaded. Finishing sync…"
+  });
+  await pushNow();
 }
 
 async function handleSignedInUser(user) {

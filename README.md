@@ -1,8 +1,7 @@
-# MealPlanner v1.0.16
+# MealPlanner v1.0.17
 
-Small Firebase first-sync fix.
+Firebase join reliability fix.
 
-- Fixes the initial household creation being denied by the production Firestore rules.
-- Removes an unnecessary pre-read of a household document before its first creation.
-- No Firestore rule changes are required.
-- No meal, household or shopping data is changed.
+- Household join now fetches the authoritative cloud snapshot directly from Firestore before replacing local data.
+- Adds a visible Joining state so first-time connection cannot appear to do nothing.
+- Keeps the existing local-first/offline behaviour and household security model unchanged.

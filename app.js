@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.16";
+const APP_VERSION = "1.0.17";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -1444,6 +1444,7 @@ function renderCloudStatus() {
     verify: "Verify email",
     signedIn: "Ready to sync",
     inviteFound: "Household found",
+    joining: "Joining…",
     connected: "Synced",
     syncing: "Syncing…",
     offline: "Offline",
