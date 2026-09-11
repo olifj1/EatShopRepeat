@@ -256,9 +256,11 @@ async function startHousehold() {
   adapter()?.assignSignedInMember?.(currentUser.email);
   const email = cleanEmail(currentUser.email);
   const householdRef = doc(db, "households", householdId);
-  const existing = await getDoc(householdRef);
-  if (existing.exists()) throw new Error("A cloud household already exists with this ID. Sign in to the account that owns it, or join the household from another copy.");
 
+  // Do not pre-read this document before the first create. The production
+  // security rules intentionally deny reads of households the user is not yet
+  // a member of, and a brand-new household has no document to prove membership
+  // against. The write itself is protected by the create/update rules.
   const allowedEmails = unique([email, ...(adapter()?.getInviteEmails?.() || [])]);
   await setDoc(householdRef, {
     name: adapter()?.getHouseholdName?.() || "Our household",
