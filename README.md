@@ -1,7 +1,8 @@
-# MealPlanner v1.0.17
+# MealPlanner v1.0.18
 
-Firebase join reliability fix.
+Firebase snapshot compatibility fix.
 
-- Household join now fetches the authoritative cloud snapshot directly from Firestore before replacing local data.
-- Adds a visible Joining state so first-time connection cannot appear to do nothing.
-- Keeps the existing local-first/offline behaviour and household security model unchanged.
+- Encodes nested household arrays into a Firestore-safe map format before cloud upload.
+- Decodes that format transparently when joining or receiving household updates.
+- Keeps the existing Firestore security rules unchanged.
+- No local household, meal-plan or shopping data migration is required.

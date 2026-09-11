@@ -68,6 +68,46 @@ const adapter = () => window.MealPlannerCloudAdapter;
 const cleanEmail = value => String(value || "").trim().toLowerCase();
 const unique = values => Array.from(new Set(values.map(cleanEmail).filter(Boolean)));
 
+// Firestore does not allow an array to contain another array directly. Meal
+// Planner's household payload legitimately contains nested arrays (for example
+// split-meal member assignments), so encode every array as a small map before
+// writing it to Firestore. Maps may nest freely, and the top-level household
+// object remains a normal map so the existing security rule can still inspect
+// payload.household.id.
+const ARRAY_MARKER = "__mealPlannerArrayV1";
+
+function encodeFirestoreValue(value) {
+  if (Array.isArray(value)) {
+    const items = {};
+    value.forEach((entry, index) => {
+      items[String(index)] = encodeFirestoreValue(entry);
+    });
+    return { [ARRAY_MARKER]: true, length: value.length, items };
+  }
+  if (value && typeof value === "object") {
+    const output = {};
+    Object.entries(value).forEach(([key, entry]) => {
+      if (entry !== undefined) output[key] = encodeFirestoreValue(entry);
+    });
+    return output;
+  }
+  return value;
+}
+
+function decodeFirestoreValue(value) {
+  if (!value || typeof value !== "object") return value;
+  if (!Array.isArray(value) && value[ARRAY_MARKER] === true && value.items && typeof value.items === "object") {
+    const length = Number.isFinite(Number(value.length)) ? Number(value.length) : Object.keys(value.items).length;
+    return Array.from({ length }, (_, index) => decodeFirestoreValue(value.items[String(index)]));
+  }
+  if (Array.isArray(value)) return value.map(decodeFirestoreValue);
+  const output = {};
+  Object.entries(value).forEach(([key, entry]) => {
+    output[key] = decodeFirestoreValue(entry);
+  });
+  return output;
+}
+
 function setStatus(next) {
   adapter()?.setStatus?.(next);
 }
@@ -158,7 +198,7 @@ async function connectHousehold(householdId, initialMeta = null) {
   unsubscribeSnapshots = onSnapshot(snapshotsRef, { includeMetadataChanges: true }, snapshot => {
     let changed = false;
     snapshot.docs.forEach(entry => {
-      const payload = entry.data()?.payload;
+      const payload = decodeFirestoreValue(entry.data()?.payload);
       if (!payload?.household?.id) return;
       try {
         if (adapter()?.mergePayload?.(payload)) changed = true;
@@ -224,7 +264,7 @@ async function pushNow() {
       installationId,
       clientUpdatedAt: new Date().toISOString(),
       updatedAt: serverTimestamp(),
-      payload
+      payload: encodeFirestoreValue(payload)
     }, { merge: true });
     setStatus({
       phase: navigator.onLine ? "connected" : "offline",
@@ -313,7 +353,7 @@ async function joinFoundHousehold() {
   }
 
   const payloads = snapshot.docs
-    .map(entry => entry.data()?.payload)
+    .map(entry => decodeFirestoreValue(entry.data()?.payload))
     .filter(payload => payload?.household?.id === householdId);
   if (!payloads.length) {
     setStatus({ phase: "inviteFound", email, householdName, foundHouseholdId: householdId, detail: "The household is available but its first cloud snapshot has not arrived yet." });
