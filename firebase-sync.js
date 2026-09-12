@@ -511,7 +511,10 @@ window.MealPlannerFirebase = {
   friendlyError
 };
 
-window.addEventListener("mealplanner:localchange", () => schedulePush());
+window.addEventListener("mealplanner:localchange", event => {
+  if (event.detail?.immediate) pushNow();
+  else schedulePush();
+});
 window.addEventListener("online", () => {
   if (connectedHouseholdId) refreshAfterResume();
 });

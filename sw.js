@@ -1,9 +1,10 @@
-const CACHE = "mealplanner-v1.0.4";
+const CACHE = "mealplanner-v1.0.22";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./style.css",
-  "./app.js",
+  "./style.css?v=1.0.22",
+  "./app.js?v=1.0.22",
+  "./firebase-sync.js?v=1.0.22",
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png"
@@ -17,7 +18,7 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))
+      .then(keys => Promise.all(keys.filter(key => key.startsWith("mealplanner-") && key !== CACHE).map(key => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });
@@ -45,28 +46,27 @@ self.addEventListener("fetch", event => {
         }
         return response;
       } catch (_) {
-        return (await caches.match("./index.html", { ignoreSearch: true })) || (await caches.match("./", { ignoreSearch: true }));
+        return (await caches.match("./index.html")) || (await caches.match("./"));
       }
     })());
     return;
   }
 
+  // Exact matching is intentional. Versioned asset URLs must never resolve to
+  // a previous build's cached app.js/style.css, which can create dead controls.
   event.respondWith((async () => {
-    const cached = await caches.match(event.request, { ignoreSearch: true });
-    const refresh = fetch(event.request, { cache: "no-store" })
-      .then(response => {
-        if (response && response.ok) {
-          const copy = response.clone();
-          caches.open(CACHE).then(cache => cache.put(event.request, copy));
-        }
-        return response;
-      })
-      .catch(() => null);
+    const cached = await caches.match(event.request);
+    if (cached) return cached;
 
-    if (cached) {
-      event.waitUntil(refresh);
-      return cached;
+    try {
+      const response = await fetch(event.request, { cache: "no-store" });
+      if (response && response.ok) {
+        const copy = response.clone();
+        event.waitUntil(caches.open(CACHE).then(cache => cache.put(event.request, copy)));
+      }
+      return response;
+    } catch (_) {
+      return Response.error();
     }
-    return (await refresh) || Response.error();
   })());
 });

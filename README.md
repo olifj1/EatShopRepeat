@@ -1,10 +1,10 @@
-# Meal Planner v1.0.4
+# MealPlanner v1.0.22
 
-Small usability update to the weekly meal plan.
+Sync-reliability rebuild based on the last known-good Firebase version.
 
-## This release
-
-- Planned dinners can now be cleared back to an empty “Choose meal” slot.
-- “No dinner / eating out” remains available as a separate explicit plan state.
-- Planned lunches can be removed back to the compact “+ Lunch” state.
-- Updated PWA cache/version for a clean v1.0.4 update.
+- Restores and hardens the Household / sync entry point.
+- Adds a fallback Household & sync action inside Week settings.
+- Keeps Firebase realtime/foreground sync from v1.0.19.
+- Keeps generalized structural-week revisions for clear, copy, move, saved-week apply and shared-week import.
+- Structural week changes push to Firebase immediately.
+- Service-worker updates bypass HTTP cache to reduce mixed-version states.
