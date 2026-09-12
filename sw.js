@@ -1,13 +1,13 @@
-const CACHE = "mealplanner-v1.0.24";
+const CACHE = "mealplanner-v1.0.23";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./style.css?v=1.0.24",
-  "./app.js?v=1.0.24",
-  "./firebase-sync.js?v=1.0.24",
+  "./style.css?v=1.0.23",
+  "./app.js?v=1.0.23",
+  "./firebase-sync.js?v=1.0.23",
   "./manifest.json",
-  "./icon-192.png?v=1.0.24",
-  "./icon-512.png?v=1.0.24"
+  "./icon-192.png",
+  "./icon-512.png"
 ];
 
 self.addEventListener("install", event => {

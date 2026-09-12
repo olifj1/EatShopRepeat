@@ -1,3 +1,3 @@
-# MealPlanner v1.0.24
+# MealPlanner v1.0.25
 
-Icon-only branding update based on the stable v1.0.23 build. Replaces the Home Screen/PWA artwork with the new bowl-and-repeat mark and bumps cache references so the new assets are fetched. No meal-planning, household, shopping or Firebase sync behaviour has changed.
+Icon-only stability build. Restores the exact v1.0.23 application, Firebase sync and service-worker runtime, while replacing the 192px/512px PWA artwork with the new bowl-and-repeat icon. Only the icon URLs are cache-busted so iOS can fetch the new artwork. No sync/data behaviour changes.
