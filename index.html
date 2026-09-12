@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=1.0.19">
+  <link rel="stylesheet" href="./style.css?v=1.0.4">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -35,9 +35,6 @@
             <p class="screen-subtitle" id="week-range"></p>
           </div>
           <div class="week-nav" aria-label="Week controls">
-            <button class="mini-icon-button settings-button" id="data-sharing" type="button" aria-label="Household and sharing" title="Household and sharing">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.3"/><path d="M3.5 19c.5-3.3 2.3-5 5.5-5s5 1.7 5.5 5"/><path d="M14.5 15c.8-.7 1.8-1 3-1 2.3 0 3.6 1.3 4 3.7"/></svg>
-            </button>
             <button class="mini-icon-button settings-button" id="week-settings" type="button" aria-label="Week settings" title="Week settings">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
             </button>
@@ -48,6 +45,10 @@
 
         <div class="week-list" id="week-list"></div>
 
+        <div class="week-actions">
+          <button class="secondary-button" id="today-week" type="button">Current week</button>
+          <button class="primary-button" id="week-to-shop" type="button">View shopping list</button>
+        </div>
       </section>
 
       <section class="screen" id="meals-screen" data-screen="meals" aria-labelledby="meals-title" hidden>
@@ -137,28 +138,11 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
         <input id="picker-search" type="search" placeholder="Find a meal" autocomplete="off">
       </label>
-      <button class="secondary-button picker-rejoin-button" id="rejoin-original" type="button" hidden>Rejoin original meal</button>
       <div class="picker-list" id="picker-list"></div>
       <div class="picker-clear-actions">
         <button class="secondary-button picker-clear-button" id="clear-day" type="button">Clear dinner</button>
         <button class="danger-quiet-button picker-no-meal-button" id="no-dinner" type="button">No dinner / eating out</button>
       </div>
-    </section>
-  </div>
-
-  <div class="overlay" id="split-members-overlay" hidden>
-    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="split-members-title">
-      <div class="sheet-handle" aria-hidden="true"></div>
-      <div class="sheet-header">
-        <div>
-          <p class="screen-kicker">DIFFERENT MEAL</p>
-          <h3 id="split-members-title">Split dinner</h3>
-        </div>
-        <button class="sheet-close" type="button" data-close="split-members-overlay" aria-label="Close">×</button>
-      </div>
-      <p class="sheet-copy">Who is eating something different? Everyone else keeps their current meal.</p>
-      <div class="split-member-list" id="split-member-list"></div>
-      <button class="primary-button full-width" id="split-members-next" type="button" disabled>Choose who is eating differently</button>
     </section>
   </div>
 
@@ -278,275 +262,9 @@
         </select>
         <p class="settings-note">This sets the seven-day planning and shopping week. Existing planned meals stay attached to their calendar dates.</p>
         <button class="primary-button full-width" type="submit">Save week settings</button>
-        <div class="settings-section-label">REUSE THIS WEEK</div>
-        <button class="secondary-button full-width settings-secondary-action" id="copy-week-plan" type="button">Copy this week</button>
-        <button class="secondary-button full-width settings-secondary-action" id="save-week-plan" type="button">Save this week</button>
-        <button class="secondary-button full-width settings-secondary-action" id="open-saved-weeks" type="button">Saved weeks</button>
-        <div class="settings-section-label">OTHER</div>
-        <button class="secondary-button full-width settings-secondary-action" id="move-week-plan" type="button">Move this week’s plan</button>
-        <button class="danger-quiet-button full-width settings-secondary-action" id="clear-week" type="button">Clear this week</button>
       </form>
     </section>
   </div>
-
-  <div class="overlay" id="copy-week-overlay" hidden>
-    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="copy-week-title">
-      <div class="sheet-handle" aria-hidden="true"></div>
-      <div class="sheet-header">
-        <div>
-          <p class="screen-kicker">COPY WEEK</p>
-          <h3 id="copy-week-title">Copy this week</h3>
-        </div>
-        <button class="sheet-close" type="button" data-close="copy-week-overlay" aria-label="Close">×</button>
-      </div>
-      <form id="copy-week-form">
-        <p class="sheet-copy">Copy dinners, lunches, splits and selected regulars from <strong id="copy-week-from"></strong>.</p>
-        <label class="field-label" for="copy-week-date">A date in the destination week</label>
-        <input class="text-input" id="copy-week-date" type="date" required>
-        <p class="settings-note" id="copy-week-target"></p>
-        <p class="settings-note">One-off items are not copied. The destination gets a fresh bought/not-needed state.</p>
-        <button class="primary-button full-width" type="submit">Copy week</button>
-      </form>
-    </section>
-  </div>
-
-  <div class="overlay" id="save-week-overlay" hidden>
-    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="save-week-title">
-      <div class="sheet-handle" aria-hidden="true"></div>
-      <div class="sheet-header">
-        <div>
-          <p class="screen-kicker">SAVE WEEK</p>
-          <h3 id="save-week-title">Save for reuse</h3>
-        </div>
-        <button class="sheet-close" type="button" data-close="save-week-overlay" aria-label="Close">×</button>
-      </div>
-      <form id="save-week-form">
-        <p class="sheet-copy">Save the dinners, lunches, split meals and selected regulars as a reusable household week.</p>
-        <label class="field-label" for="saved-week-name">Name</label>
-        <input class="text-input" id="saved-week-name" type="text" maxlength="60" autocomplete="off" required>
-        <p class="settings-note">One-off items and bought/not-needed state are deliberately left out.</p>
-        <button class="primary-button full-width" type="submit">Save week</button>
-      </form>
-    </section>
-  </div>
-
-  <div class="overlay" id="saved-weeks-overlay" hidden>
-    <section class="sheet tall-sheet" role="dialog" aria-modal="true" aria-labelledby="saved-weeks-title">
-      <div class="sheet-handle" aria-hidden="true"></div>
-      <div class="sheet-header">
-        <div>
-          <p class="screen-kicker">REUSE</p>
-          <h3 id="saved-weeks-title">Saved weeks</h3>
-        </div>
-        <button class="sheet-close" type="button" data-close="saved-weeks-overlay" aria-label="Close">×</button>
-      </div>
-      <p class="sheet-copy">Use a saved plan on <strong id="saved-weeks-target"></strong>. Meals, splits and selected regulars are restored with a fresh shop state.</p>
-      <div class="saved-week-list" id="saved-week-list"></div>
-    </section>
-  </div>
-
-  <div class="overlay" id="move-week-overlay" hidden>
-    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="move-week-title">
-      <div class="sheet-handle" aria-hidden="true"></div>
-      <div class="sheet-header">
-        <div>
-          <p class="screen-kicker">MOVE PLAN</p>
-          <h3 id="move-week-title">Move this week</h3>
-        </div>
-        <button class="sheet-close" type="button" data-close="move-week-overlay" aria-label="Close">×</button>
-      </div>
-      <form id="move-week-form">
-        <p class="sheet-copy">Move the dinners and lunches from <strong id="move-week-from"></strong> to another week.</p>
-        <label class="field-label" for="move-week-date">A date in the destination week</label>
-        <input class="text-input" id="move-week-date" type="date" required>
-        <p class="settings-note" id="move-week-target"></p>
-        <p class="settings-note">Regulars, one-off shopping items and checked/not-needed state stay with their original weeks.</p>
-        <button class="primary-button full-width" type="submit">Move meal plan</button>
-      </form>
-    </section>
-  </div>
-
-  <div class="overlay" id="data-overlay" hidden>
-    <section class="sheet tall-sheet" role="dialog" aria-modal="true" aria-labelledby="data-title">
-      <div class="sheet-handle" aria-hidden="true"></div>
-      <div class="sheet-header">
-        <div>
-          <p class="screen-kicker">HOUSEHOLD</p>
-          <h3 id="data-title">Household &amp; sharing</h3>
-        </div>
-        <button class="sheet-close" type="button" data-close="data-overlay" aria-label="Close">×</button>
-      </div>
-
-      <div class="household-card">
-        <div class="household-card-top">
-          <div>
-            <strong id="household-title">Our household</strong>
-            <small id="current-device-member">This copy isn’t assigned to an app user yet</small>
-          </div>
-          <span class="manual-sync-badge sync-badge" id="sync-badge">Connecting…</span>
-        </div>
-        <div class="household-members-preview" id="household-members-preview"></div>
-        <button class="secondary-button full-width compact-action" id="manage-household" type="button">Set up household</button>
-      </div>
-
-      <div class="data-card cloud-sync-card">
-        <div class="data-card-heading">
-          <strong>Automatic household sync</strong>
-          <small id="cloud-sync-detail">Loading cloud sync…</small>
-        </div>
-        <div class="cloud-status-row">
-          <span class="cloud-status-dot" aria-hidden="true"></span>
-          <div><strong id="cloud-sync-state">Connecting…</strong><small id="cloud-account"></small></div>
-        </div>
-        <div class="cloud-action-stack">
-          <button class="primary-button full-width" id="cloud-auth-open" type="button" hidden>Sign in / create account</button>
-          <button class="secondary-button full-width" id="cloud-verify" type="button" hidden>I’ve verified my email</button>
-          <button class="primary-button full-width" id="cloud-start" type="button" hidden>Start syncing this household</button>
-          <button class="primary-button full-width" id="cloud-join" type="button" hidden>Join shared household</button>
-          <button class="secondary-button full-width" id="cloud-sync-now" type="button" hidden>Sync now</button>
-          <button class="text-button cloud-signout" id="cloud-signout" type="button" hidden>Sign out</button>
-        </div>
-        <p class="settings-note">Once connected, Safari, Home Screen copies and invited app users share the same household automatically. Local data still works offline.</p>
-      </div>
-
-      <details class="data-details">
-        <summary>Manual sharing &amp; backup</summary>
-        <div class="data-card household-share-card">
-          <div class="data-card-heading">
-            <strong>Share household snapshot</strong>
-            <small>Fallback file sharing for meals, people, plans, regulars and shopping state.</small>
-          </div>
-          <div class="data-button-row">
-            <button class="secondary-button" id="share-household" type="button">Share update</button>
-            <button class="secondary-button" id="import-household" type="button">Import update</button>
-          </div>
-        </div>
-        <div class="data-card">
-          <div class="data-card-heading">
-            <strong>Share only this week</strong>
-            <small>Useful for sending a plan without joining the household.</small>
-          </div>
-          <div class="data-button-row">
-            <button class="secondary-button" id="share-week" type="button">Share this week</button>
-            <button class="secondary-button" id="import-week" type="button">Import week</button>
-          </div>
-        </div>
-        <div class="data-card">
-          <div class="data-card-heading">
-            <strong>Full backup / transfer</strong>
-            <small>Replaces everything in this copy when restored.</small>
-          </div>
-          <div class="data-button-row">
-            <button class="secondary-button" id="export-backup" type="button">Export backup</button>
-            <button class="secondary-button" id="import-backup" type="button">Import backup</button>
-          </div>
-        </div>
-      </details>
-    </section>
-  </div>
-
-  <div class="overlay" id="household-manager-overlay" hidden>
-    <section class="sheet tall-sheet" role="dialog" aria-modal="true" aria-labelledby="household-manager-title">
-      <div class="sheet-handle" aria-hidden="true"></div>
-      <div class="sheet-header">
-        <div>
-          <p class="screen-kicker">HOUSEHOLD</p>
-          <h3 id="household-manager-title">Your household</h3>
-        </div>
-        <button class="sheet-close" type="button" data-close="household-manager-overlay" aria-label="Close">×</button>
-      </div>
-
-      <form id="household-name-form" class="household-name-form">
-        <label class="field-label" for="household-name">Household name</label>
-        <div class="inline-household-name">
-          <input class="text-input" id="household-name" type="text" maxlength="48" autocomplete="off">
-          <button class="small-add-button" type="submit">Save</button>
-        </div>
-      </form>
-
-      <div class="ingredients-heading household-people-heading">
-        <div><strong>People</strong><small>Anyone you might plan meals for.</small></div>
-        <button class="small-add-button" id="add-household-member" type="button">＋ Add</button>
-      </div>
-      <div class="household-member-list" id="household-member-list"></div>
-      <p class="settings-note household-note"><strong>App user</strong> means someone who can sign in and share this household. Children can be household members without needing an account.</p>
-      <button class="secondary-button full-width" type="button" data-close="household-manager-overlay">Done</button>
-    </section>
-  </div>
-
-  <div class="overlay" id="member-editor-overlay" hidden>
-    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="member-editor-title">
-      <div class="sheet-handle" aria-hidden="true"></div>
-      <div class="sheet-header">
-        <div>
-          <p class="screen-kicker">PERSON</p>
-          <h3 id="member-editor-title">Add person</h3>
-        </div>
-        <button class="sheet-close" type="button" data-close="member-editor-overlay" aria-label="Close">×</button>
-      </div>
-      <form id="member-form">
-        <input type="hidden" id="member-id">
-        <input type="hidden" id="member-color">
-        <label class="field-label" for="member-name">Name</label>
-        <input class="text-input" id="member-name" type="text" maxlength="36" autocomplete="off" required placeholder="e.g. Oli">
-
-        <label class="field-label spaced-label" for="member-role">Person type</label>
-        <select class="text-input select-input" id="member-role">
-          <option value="adult">Adult</option>
-          <option value="child">Child</option>
-        </select>
-
-        <label class="field-label spaced-label">Colour</label>
-        <div class="member-color-choices" id="member-color-choices"></div>
-
-        <label class="toggle-row">
-          <span><strong>Uses Meal Planner</strong><small>App users can sign in and share the household automatically.</small></span>
-          <input id="member-app-user" type="checkbox">
-        </label>
-        <div id="member-email-wrap" hidden>
-          <label class="field-label spaced-label" for="member-email">Sign-in email</label>
-          <input class="text-input" id="member-email" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com">
-          <p class="settings-note member-email-note">This is also the email that grants access to the shared household.</p>
-        </div>
-        <label class="toggle-row">
-          <span><strong>This copy is mine</strong><small>Identifies who is making changes on this Safari/Home Screen copy.</small></span>
-          <input id="member-this-device" type="checkbox" disabled>
-        </label>
-
-        <div class="form-actions">
-          <button class="danger-quiet-button left" id="delete-member" type="button" hidden>Remove person</button>
-          <button class="primary-button grow" type="submit">Save person</button>
-        </div>
-      </form>
-    </section>
-  </div>
-
-  <div class="overlay" id="cloud-auth-overlay" hidden>
-    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="cloud-auth-title">
-      <div class="sheet-handle" aria-hidden="true"></div>
-      <div class="sheet-header">
-        <div>
-          <p class="screen-kicker">CLOUD SYNC</p>
-          <h3 id="cloud-auth-title">Meal Planner account</h3>
-        </div>
-        <button class="sheet-close" type="button" data-close="cloud-auth-overlay" aria-label="Close">×</button>
-      </div>
-      <p class="sheet-copy">Use the same account on Safari and the Home Screen app. Your partner uses their own email.</p>
-      <form id="cloud-auth-form">
-        <label class="field-label" for="cloud-email">Email</label>
-        <input class="text-input" id="cloud-email" type="email" inputmode="email" autocomplete="email" required>
-        <label class="field-label spaced-label" for="cloud-password">Password</label>
-        <input class="text-input" id="cloud-password" type="password" autocomplete="current-password" minlength="6" required>
-        <button class="primary-button full-width cloud-auth-primary" type="submit">Sign in</button>
-        <button class="secondary-button full-width" id="cloud-create-account" type="button">Create account</button>
-        <button class="text-button cloud-reset" id="cloud-reset-password" type="button">Forgot password?</button>
-      </form>
-    </section>
-  </div>
-
-  <input id="household-file-input" class="visually-hidden-file" type="file" accept="application/json,.json">
-  <input id="backup-file-input" class="visually-hidden-file" type="file" accept="application/json,.json">
-  <input id="week-file-input" class="visually-hidden-file" type="file" accept="application/json,.json">
 
   <div class="overlay install-overlay" id="install-overlay" hidden>
     <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="install-title">
@@ -567,7 +285,6 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.19"></script>
-  <script type="module" src="./firebase-sync.js?v=1.0.19"></script>
+  <script src="./app.js?v=1.0.4"></script>
 </body>
 </html>

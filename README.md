@@ -1,7 +1,10 @@
-# MealPlanner v1.0.19
+# Meal Planner v1.0.4
 
-Foreground sync responsiveness update.
+Small usability update to the weekly meal plan.
 
-- Forces an immediate Firebase refresh when Safari or the Home Screen app returns to the foreground.
-- Pushes any locally queued change before pulling the latest household state.
-- Helps iOS copies catch up quickly after being suspended in the background.
+## This release
+
+- Planned dinners can now be cleared back to an empty “Choose meal” slot.
+- “No dinner / eating out” remains available as a separate explicit plan state.
+- Planned lunches can be removed back to the compact “+ Lunch” state.
+- Updated PWA cache/version for a clean v1.0.4 update.

@@ -1,10 +1,9 @@
-const CACHE = "mealplanner-v1.0.19";
+const CACHE = "mealplanner-v1.0.4";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./style.css?v=1.0.19",
-  "./app.js?v=1.0.19",
-  "./firebase-sync.js?v=1.0.19",
+  "./style.css",
+  "./app.js",
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png"
@@ -18,7 +17,7 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(key => key.startsWith("mealplanner-") && key !== CACHE).map(key => caches.delete(key))))
+      .then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });
@@ -46,27 +45,28 @@ self.addEventListener("fetch", event => {
         }
         return response;
       } catch (_) {
-        return (await caches.match("./index.html")) || (await caches.match("./"));
+        return (await caches.match("./index.html", { ignoreSearch: true })) || (await caches.match("./", { ignoreSearch: true }));
       }
     })());
     return;
   }
 
-  // Exact matching is intentional. Versioned asset URLs must never resolve to
-  // a previous build's cached app.js/style.css, which can create dead controls.
   event.respondWith((async () => {
-    const cached = await caches.match(event.request);
-    if (cached) return cached;
+    const cached = await caches.match(event.request, { ignoreSearch: true });
+    const refresh = fetch(event.request, { cache: "no-store" })
+      .then(response => {
+        if (response && response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        }
+        return response;
+      })
+      .catch(() => null);
 
-    try {
-      const response = await fetch(event.request, { cache: "no-store" });
-      if (response && response.ok) {
-        const copy = response.clone();
-        event.waitUntil(caches.open(CACHE).then(cache => cache.put(event.request, copy)));
-      }
-      return response;
-    } catch (_) {
-      return Response.error();
+    if (cached) {
+      event.waitUntil(refresh);
+      return cached;
     }
+    return (await refresh) || Response.error();
   })());
 });
