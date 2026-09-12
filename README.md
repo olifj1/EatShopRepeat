@@ -1,3 +1,3 @@
-# MealPlanner v1.0.23
+# MealPlanner v1.0.24
 
-Sync reliability rollback/fix. Rebuilt from the known-good v1.0.19 Firebase/UI base. Bulk week operations (clear, copy, move, apply/save/delete saved week, shared-week import and week-start changes) now request an immediate cloud push using the existing per-field timestamp merge system. No Firebase settings or data migration changes are required.
+Icon-only branding update based on the stable v1.0.23 build. Replaces the Home Screen/PWA artwork with the new bowl-and-repeat mark and bumps cache references so the new assets are fetched. No meal-planning, household, shopping or Firebase sync behaviour has changed.
