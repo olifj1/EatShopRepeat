@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.22";
+const APP_VERSION = "1.0.23";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -17,20 +17,8 @@ const UNITS = ["", "pack", "packs", "g", "kg", "ml", "l", "pint", "pints", "tbsp
 const NO_MEAL = "__none__";
 const DEFAULT_WEEK_START_DAY = 5; // Friday
 const BUNDLED_CONTENT_VERSION = 1;
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 6;
 const MEMBER_COLORS = ["sage", "terracotta", "blue", "gold", "rose", "plum"];
-
-// Week changes can be granular (one dinner changed) or structural (copy, move,
-// clear, apply a saved week). Structural changes carry an explicit revision
-// describing exactly which week fields were replaced, so another installation
-// can distinguish intentional deletions/replacements from an older sparse
-// snapshot.
-const WEEK_LIST_FIELDS = ["regularItemIds", "extras", "checkedItemIds", "notNeededItemIds"];
-const WEEK_SLOT_TYPES = ["dinner", "lunch"];
-const WEEK_ALL_TARGETS = [
-  ...WEEK_SLOT_TYPES.flatMap(slotType => Array.from({ length: 7 }, (_, index) => `${slotType}:${index}`)),
-  ...WEEK_LIST_FIELDS
-];
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => Array.from(document.querySelectorAll(selector));
@@ -120,9 +108,7 @@ function emptyWeek(startKey) {
     },
     createdAt: now,
     updatedAt: now,
-    updatedBy: null,
-    resetAt: null,
-    weekRevision: null
+    updatedBy: null
   };
 }
 
@@ -156,30 +142,6 @@ function normaliseWeek(week, key) {
   clean.createdAt = clean.createdAt || new Date().toISOString();
   clean.updatedAt = clean.updatedAt || clean.createdAt;
   clean.updatedBy = clean.updatedBy || null;
-  clean.resetAt = clean.resetAt || null;
-
-  const rawRevision = clean.weekRevision && typeof clean.weekRevision === "object" ? clean.weekRevision : null;
-  const revisionTargets = Array.isArray(rawRevision?.targets)
-    ? Array.from(new Set(rawRevision.targets.filter(target => {
-        if (WEEK_LIST_FIELDS.includes(target)) return true;
-        const match = /^(dinner|lunch):([0-6])$/.exec(String(target || ""));
-        return !!match;
-      })))
-    : [];
-  clean.weekRevision = rawRevision?.at && revisionTargets.length
-    ? {
-        at: rawRevision.at,
-        targets: revisionTargets,
-        reason: String(rawRevision.reason || "replace"),
-        updatedBy: rawRevision.updatedBy || null
-      }
-    : null;
-
-  // v1.0.20 used resetAt for Clear Week before general structural week
-  // revisions existed. Preserve that intent when older snapshots are merged.
-  if (clean.resetAt && (!clean.weekRevision || String(clean.resetAt) > String(clean.weekRevision.at || ""))) {
-    clean.weekRevision = { at: clean.resetAt, targets: [...WEEK_ALL_TARGETS], reason: "clear", updatedBy: clean.updatedBy || null };
-  }
 
   const legacyMeals = Array.isArray(clean.meals) ? [...clean.meals, ...Array(7).fill(null)].slice(0, 7) : Array(7).fill(null);
   const legacyLunches = Array.isArray(clean.lunches) ? [...clean.lunches, ...Array(7).fill(null)].slice(0, 7) : Array(7).fill(null);
@@ -584,53 +546,6 @@ function touchWeekField(week, field, index = null, stamp = new Date().toISOStrin
   }
   touchRecord(week, stamp);
   return stamp;
-}
-
-function normaliseWeekRevisionTargets(targets) {
-  return Array.from(new Set((targets || []).filter(target => {
-    if (WEEK_LIST_FIELDS.includes(target)) return true;
-    return /^(dinner|lunch):[0-6]$/.test(String(target || ""));
-  })));
-}
-
-function targetStamp(week, target) {
-  const slotMatch = /^(dinner|lunch):([0-6])$/.exec(String(target || ""));
-  if (slotMatch) return week.fieldUpdatedAt?.[slotMatch[1]]?.[Number(slotMatch[2])] || null;
-  if (WEEK_LIST_FIELDS.includes(target)) return week.fieldUpdatedAt?.[target] || null;
-  return null;
-}
-
-function copyWeekTarget(targetWeek, sourceWeek, target) {
-  const slotMatch = /^(dinner|lunch):([0-6])$/.exec(String(target || ""));
-  if (slotMatch) {
-    const slotType = slotMatch[1];
-    const index = Number(slotMatch[2]);
-    targetWeek.slots[slotType][index] = clone(sourceWeek.slots[slotType][index]);
-    return;
-  }
-  if (WEEK_LIST_FIELDS.includes(target)) targetWeek[target] = clone(sourceWeek[target]);
-}
-
-function stampWeekRevision(week, targets, reason = "replace", stamp = new Date().toISOString()) {
-  const cleanTargets = normaliseWeekRevisionTargets(targets);
-  if (!cleanTargets.length) return stamp;
-  cleanTargets.forEach(target => {
-    const slotMatch = /^(dinner|lunch):([0-6])$/.exec(target);
-    if (slotMatch) week.fieldUpdatedAt[slotMatch[1]][Number(slotMatch[2])] = stamp;
-    else week.fieldUpdatedAt[target] = stamp;
-  });
-  week.weekRevision = {
-    at: stamp,
-    targets: cleanTargets,
-    reason,
-    updatedBy: currentMemberId()
-  };
-  touchRecord(week, stamp);
-  return stamp;
-}
-
-function allSlotTargets() {
-  return WEEK_SLOT_TYPES.flatMap(slotType => Array.from({ length: 7 }, (_, index) => `${slotType}:${index}`));
 }
 
 function saveData(options = {}) {
@@ -1849,38 +1764,6 @@ function mergeWeekRecord(localWeek, incomingWeek, key) {
   const local = normaliseWeek(clone(localWeek), key);
   const incoming = normaliseWeek(clone(incomingWeek), key);
   const newer = (incomingStamp, localStamp) => String(incomingStamp || "") > String(localStamp || "");
-
-  // Structural operations (copy/move/clear/apply saved week/import) explicitly
-  // state which parts of a week were replaced. Apply those replacements before
-  // the granular field merge. A newer individual edit still wins because every
-  // target is compared against its own field timestamp.
-  const revision = incoming.weekRevision;
-  if (revision?.at) {
-    revision.targets.forEach(target => {
-      if (!newer(revision.at, targetStamp(local, target))) return;
-      copyWeekTarget(local, incoming, target);
-      const slotMatch = /^(dinner|lunch):([0-6])$/.exec(target);
-      if (slotMatch) local.fieldUpdatedAt[slotMatch[1]][Number(slotMatch[2])] = revision.at;
-      else local.fieldUpdatedAt[target] = revision.at;
-    });
-    if (!local.weekRevision || newer(revision.at, local.weekRevision.at)) local.weekRevision = clone(revision);
-    if (revision.reason === "clear" && newer(revision.at, local.resetAt)) local.resetAt = revision.at;
-  }
-
-  // Backward compatibility for a v1.0.20 Clear Week snapshot whose resetAt may
-  // arrive without a general weekRevision marker. normaliseWeek normally
-  // upgrades it, but retaining this guard makes imported legacy data safe too.
-  if (newer(incoming.resetAt, local.resetAt)) {
-    WEEK_ALL_TARGETS.forEach(target => {
-      if (!newer(incoming.resetAt, targetStamp(local, target))) return;
-      copyWeekTarget(local, incoming, target);
-      const slotMatch = /^(dinner|lunch):([0-6])$/.exec(target);
-      if (slotMatch) local.fieldUpdatedAt[slotMatch[1]][Number(slotMatch[2])] = incoming.resetAt;
-      else local.fieldUpdatedAt[target] = incoming.resetAt;
-    });
-    local.resetAt = incoming.resetAt;
-  }
-
   ["dinner", "lunch"].forEach(slotType => {
     for (let index = 0; index < 7; index += 1) {
       if (newer(incoming.fieldUpdatedAt[slotType][index], local.fieldUpdatedAt[slotType][index])) {
@@ -1889,7 +1772,7 @@ function mergeWeekRecord(localWeek, incomingWeek, key) {
       }
     }
   });
-  WEEK_LIST_FIELDS.forEach(field => {
+  ["regularItemIds", "extras", "checkedItemIds", "notNeededItemIds"].forEach(field => {
     if (newer(incoming.fieldUpdatedAt[field], local.fieldUpdatedAt[field])) {
       local[field] = clone(incoming[field]);
       local.fieldUpdatedAt[field] = incoming.fieldUpdatedAt[field];
@@ -2080,21 +1963,16 @@ async function importSharedWeekFile(file) {
       }).filter(Boolean);
     };
 
-    const importStamp = new Date().toISOString();
-    const touchedWeeks = new Map();
     payload.days.forEach(day => {
       const date = fromDateKey(day.date);
       const target = weekForCalendarDate(date);
       if (target.index < 0 || target.index > 6) return;
       target.week.slots.dinner[target.index] = convertAssignments(day, "dinner");
       target.week.slots.lunch[target.index] = convertAssignments(day, "lunch");
-      const key = target.week.startDate;
-      if (!touchedWeeks.has(key)) touchedWeeks.set(key, { week: target.week, targets: [] });
-      touchedWeeks.get(key).targets.push(`dinner:${target.index}`, `lunch:${target.index}`);
-    });
-    touchedWeeks.forEach(({ week, targets }) => {
-      stampWeekRevision(week, targets, "shared-week-import", importStamp);
-      syncLegacyWeekSlots(week);
+      const importStamp = new Date().toISOString();
+      touchWeekField(target.week, "dinner", target.index, importStamp);
+      touchWeekField(target.week, "lunch", target.index, importStamp);
+      syncLegacyWeekSlots(target.week);
     });
 
     selectedWeekStart = startOfWeek(firstDate, data.settings.weekStartDay);
@@ -2139,18 +2017,19 @@ function remapReusableSlots(rawSlots, sourceWeekStartDay, targetWeekStartDay, st
   return mapped;
 }
 
-function applyReusableWeek(targetWeek, slots, regularItemIds, sourceWeekStartDay, reason = "reuse") {
+function applyReusableWeek(targetWeek, slots, regularItemIds, sourceWeekStartDay) {
   const stamp = new Date().toISOString();
   targetWeek.slots = remapReusableSlots(slots, sourceWeekStartDay, data.settings.weekStartDay, stamp);
   targetWeek.regularItemIds = Array.from(new Set((regularItemIds || []).filter(id => !!findItem(id))));
   targetWeek.checkedItemIds = [];
   targetWeek.notNeededItemIds = [];
-  stampWeekRevision(targetWeek, [
-    ...allSlotTargets(),
-    "regularItemIds",
-    "checkedItemIds",
-    "notNeededItemIds"
-  ], reason, stamp);
+  for (let index = 0; index < 7; index += 1) {
+    touchWeekField(targetWeek, "dinner", index, stamp);
+    touchWeekField(targetWeek, "lunch", index, stamp);
+  }
+  touchWeekField(targetWeek, "regularItemIds", null, stamp);
+  touchWeekField(targetWeek, "checkedItemIds", null, stamp);
+  touchWeekField(targetWeek, "notNeededItemIds", null, stamp);
   syncLegacyWeekSlots(targetWeek);
   return targetWeek;
 }
@@ -2199,7 +2078,7 @@ function copyCurrentWeek(event) {
   }
   const targetWeek = data.weeks[targetKey] ? normaliseWeek(data.weeks[targetKey], targetKey) : emptyWeek(targetKey);
   if (weekHasReusableContent(targetWeek) && !confirm(`The destination week (${formatWeekRange(targetStart)}) already has meals or selected regulars. Replace those with this week's plan?`)) return;
-  applyReusableWeek(targetWeek, sourceWeek.slots, sourceWeek.regularItemIds, data.settings.weekStartDay, "copy");
+  applyReusableWeek(targetWeek, sourceWeek.slots, sourceWeek.regularItemIds, data.settings.weekStartDay);
   data.weeks[targetKey] = targetWeek;
   selectedWeekStart = targetStart;
   saveData({ immediateCloud: true });
@@ -2294,7 +2173,7 @@ function useSavedWeek(id) {
   if (!savedWeek) return;
   const targetWeek = getWeek();
   if (weekHasReusableContent(targetWeek) && !confirm(`Replace the meals and selected regulars for ${formatWeekRange(selectedWeekStart)} with “${savedWeek.name}”?`)) return;
-  applyReusableWeek(targetWeek, savedWeek.slots, savedWeek.regularItemIds, savedWeek.weekStartDay, "saved-week");
+  applyReusableWeek(targetWeek, savedWeek.slots, savedWeek.regularItemIds, savedWeek.weekStartDay);
   data.weeks[weekKey()] = targetWeek;
   saveData({ immediateCloud: true });
   renderAll();
@@ -2337,7 +2216,6 @@ function clearCurrentWeek() {
   if (!confirm(`Clear ${formatWeekRange(selectedWeekStart)}? This removes its meals and resets its shopping list. Saved weeks and your meal library are not affected.`)) return;
 
   const stamp = new Date().toISOString();
-  week.resetAt = stamp;
   week.slots = {
     dinner: Array.from({ length: 7 }, () => []),
     lunch: Array.from({ length: 7 }, () => [])
@@ -2347,7 +2225,11 @@ function clearCurrentWeek() {
   week.checkedItemIds = [];
   week.notNeededItemIds = [];
 
-  stampWeekRevision(week, WEEK_ALL_TARGETS, "clear", stamp);
+  for (let index = 0; index < 7; index += 1) {
+    touchWeekField(week, "dinner", index, stamp);
+    touchWeekField(week, "lunch", index, stamp);
+  }
+  ["regularItemIds", "extras", "checkedItemIds", "notNeededItemIds"].forEach(field => touchWeekField(week, field, null, stamp));
   syncLegacyWeekSlots(week);
   data.weeks[weekKey()] = week;
   saveData({ immediateCloud: true });
@@ -2414,12 +2296,18 @@ function moveCurrentWeekPlan(event) {
 
   const now = new Date().toISOString();
   existingTarget.slots = clone(sourceWeek.slots);
-  stampWeekRevision(existingTarget, allSlotTargets(), "move-in", now);
+  for (let index = 0; index < 7; index += 1) {
+    touchWeekField(existingTarget, "dinner", index, now);
+    touchWeekField(existingTarget, "lunch", index, now);
+  }
   syncLegacyWeekSlots(existingTarget);
   data.weeks[targetKey] = existingTarget;
 
   sourceWeek.slots = { dinner: Array.from({ length: 7 }, () => []), lunch: Array.from({ length: 7 }, () => []) };
-  stampWeekRevision(sourceWeek, allSlotTargets(), "move-out", now);
+  for (let index = 0; index < 7; index += 1) {
+    touchWeekField(sourceWeek, "dinner", index, now);
+    touchWeekField(sourceWeek, "lunch", index, now);
+  }
   syncLegacyWeekSlots(sourceWeek);
   data.weeks[sourceKey] = sourceWeek;
 
@@ -2526,7 +2414,6 @@ function bindEvents() {
   $("#next-week").addEventListener("click", () => changeWeek(1));
   $("#data-sharing").addEventListener("click", openDataSharing);
   $("#week-settings").addEventListener("click", openWeekSettings);
-  $("#settings-household-sync").addEventListener("click", () => { closeOverlay("settings-overlay"); openDataSharing(); });
   $("#settings-form").addEventListener("submit", saveWeekSettings);
   $("#copy-week-plan").addEventListener("click", openCopyWeek);
   $("#copy-week-date").addEventListener("change", updateCopyWeekTarget);
@@ -2644,7 +2531,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.22", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.23", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {

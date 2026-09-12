@@ -105,8 +105,8 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
   font-size: 13px;
   line-height: 1.35;
 }
-.week-nav { display: flex; gap: 7px; flex: 0 0 auto; }
-.mini-icon-button { width: 38px; height: 38px; flex: 0 0 38px; border-radius: 13px; font-size: 28px; line-height: 1; padding-bottom: 3px; }
+.week-nav { display: flex; gap: 7px; }
+.mini-icon-button { width: 38px; height: 38px; border-radius: 13px; font-size: 28px; line-height: 1; padding-bottom: 3px; }
 .mini-icon-button.settings-button { padding: 0; }
 .mini-icon-button.settings-button svg { width: 19px; height: 19px; stroke-width: 1.8; }
 .round-action {
