@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.28";
+const APP_VERSION = "1.0.29";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -17,8 +17,9 @@ const UNITS = ["", "pack", "packs", "g", "kg", "ml", "l", "pint", "pints", "tbsp
 const NO_MEAL = "__none__";
 const DEFAULT_WEEK_START_DAY = 5; // Friday
 const BUNDLED_CONTENT_VERSION = 1;
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 const MEMBER_COLORS = ["sage", "terracotta", "blue", "gold", "rose", "plum"];
+const DEFAULT_MEAL_TAGS = ["Kids", "Adults", "Sunday", "Quick", "Lunch", "Vegetarian", "Treat"];
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => Array.from(document.querySelectorAll(selector));
@@ -334,6 +335,8 @@ function applyBundledContent(target) {
         { itemId: itemIds.item_black_pepper, qty: "", unit: "" }
       ],
       sourceUrl: "https://www.bbc.co.uk/food/recipes/sweet_potato_soup_62834",
+      tags: [],
+      rating: 0,
       createdAt: now,
       updatedAt: now,
       lastUsedAt: null
@@ -393,6 +396,7 @@ function seedData() {
     { id: "meal_quesadillas", name: "Ham & cheese quesadillas", ingredients: [ingredient("tortilla", 1, "pack"), ingredient("ham", 1, "pack"), ingredient("cheese"), ingredient("peppers", 1)], createdAt: now, updatedAt: now, lastUsedAt: null },
     { id: "meal_roast", name: "Roast chicken", ingredients: [ingredient("wholechicken", 1), ingredient("potatoes", 1, "kg"), ingredient("carrots", 1, "pack"), ingredient("peas", 1, "pack"), ingredient("gravy")], createdAt: now, updatedAt: now, lastUsedAt: null }
   ];
+  meals.forEach(meal => { meal.tags = []; meal.rating = 0; });
 
   const household = createEmptyHousehold();
   const seeded = {
@@ -443,6 +447,40 @@ function normaliseMember(member, index = 0) {
   };
 }
 
+function normaliseMealTags(tags) {
+  const result = [];
+  const seen = new Set();
+  (Array.isArray(tags) ? tags : []).forEach(raw => {
+    const value = normaliseName(raw);
+    if (!value) return;
+    const key = keyName(value);
+    if (seen.has(key)) return;
+    seen.add(key);
+    const defaultTag = DEFAULT_MEAL_TAGS.find(tag => keyName(tag) === key);
+    result.push(defaultTag || value);
+  });
+  return result;
+}
+
+function normaliseMealRating(value) {
+  const rating = Number(value);
+  return Number.isFinite(rating) ? Math.max(0, Math.min(5, Math.round(rating))) : 0;
+}
+
+function knownMealTags() {
+  const custom = [];
+  const seen = new Set(DEFAULT_MEAL_TAGS.map(keyName));
+  data?.meals?.forEach(meal => {
+    if (meal.deletedAt) return;
+    normaliseMealTags(meal.tags).forEach(tag => {
+      const key = keyName(tag);
+      if (!seen.has(key)) { seen.add(key); custom.push(tag); }
+    });
+  });
+  custom.sort((a, b) => a.localeCompare(b));
+  return [...DEFAULT_MEAL_TAGS, ...custom];
+}
+
 function prepareDataObject(parsed) {
   if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.items) || !Array.isArray(parsed.meals)) {
     throw new Error("Not valid Meal Planner data");
@@ -487,6 +525,8 @@ function prepareDataObject(parsed) {
   }));
   clean.meals = clean.meals.map(meal => ({
     ...meal,
+    tags: normaliseMealTags(meal.tags),
+    rating: normaliseMealRating(meal.rating),
     createdAt: meal.createdAt || meal.updatedAt || new Date().toISOString(),
     updatedAt: meal.updatedAt || meal.createdAt || new Date().toISOString(),
     updatedBy: meal.updatedBy || null,
@@ -532,6 +572,10 @@ let pickerAudienceMemberIds = null;
 let pendingAlternativeMealId = null;
 let toastTimer = null;
 let deferredInstallPrompt = null;
+let mealTagFilter = "all";
+let mealRatingFilter = "any";
+let editingMealTags = [];
+let editingMealRating = 0;
 
 function currentMemberId() {
   return data?.settings?.currentMemberId || null;
@@ -793,18 +837,52 @@ function mealUsageText(meal) {
   return `Last used ${formatDateShort(date)} · ${meal.ingredients.length} item${meal.ingredients.length === 1 ? "" : "s"}`;
 }
 
+function mealRatingText(rating) {
+  const value = normaliseMealRating(rating);
+  return value ? `${"★".repeat(value)}${"☆".repeat(5 - value)}` : "";
+}
+
+function renderMealFilters() {
+  const tags = knownMealTags();
+  if (mealTagFilter !== "all" && !tags.some(tag => keyName(tag) === keyName(mealTagFilter))) mealTagFilter = "all";
+  const options = ["all", ...tags];
+  $("#meal-tag-filters").innerHTML = options.map(tag => {
+    const label = tag === "all" ? "All" : tag;
+    const active = tag === "all" ? mealTagFilter === "all" : keyName(mealTagFilter) === keyName(tag);
+    return `<button class="meal-filter-chip ${active ? "active" : ""}" type="button" data-meal-tag-filter="${escapeHtml(tag)}">${escapeHtml(label)}</button>`;
+  }).join("");
+  $("#meal-rating-filter").value = mealRatingFilter;
+}
+
+function mealMatchesRating(meal) {
+  const rating = normaliseMealRating(meal.rating);
+  if (mealRatingFilter === "unrated") return rating === 0;
+  if (["3", "4", "5"].includes(mealRatingFilter)) return rating >= Number(mealRatingFilter);
+  return true;
+}
+
 function renderMeals() {
+  renderMealFilters();
   const query = keyName($("#meal-search").value);
   const meals = data.meals
-    .filter(meal => !meal.deletedAt && (!query || keyName(meal.name).includes(query)))
+    .filter(meal => {
+      if (meal.deletedAt) return false;
+      const tags = normaliseMealTags(meal.tags);
+      const matchesQuery = !query || keyName(meal.name).includes(query) || tags.some(tag => keyName(tag).includes(query));
+      const matchesTag = mealTagFilter === "all" || tags.some(tag => keyName(tag) === keyName(mealTagFilter));
+      return matchesQuery && matchesTag && mealMatchesRating(meal);
+    })
     .sort((a, b) => a.name.localeCompare(b.name));
   $("#meal-list").innerHTML = meals.length ? meals.map(meal => {
     const names = meal.ingredients.slice(0, 4).map(ing => findItem(ing.itemId)?.name).filter(Boolean).join(", ");
+    const tags = normaliseMealTags(meal.tags);
+    const rating = mealRatingText(meal.rating);
+    const meta = (rating || tags.length) ? `<div class="meal-card-meta">${rating ? `<span class="meal-card-rating" aria-label="${normaliseMealRating(meal.rating)} out of 5 stars">${rating}</span>` : ""}${tags.map(tag => `<button class="meal-tag-chip" type="button" data-meal-card-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}</div>` : "";
     return `<article class="meal-card">
-      <div class="meal-card-main"><h3>${escapeHtml(meal.name)}</h3><p>${escapeHtml(names || "No shopping items yet")}${meal.ingredients.length > 4 ? "…" : ""}</p></div>
+      <div class="meal-card-main"><h3>${escapeHtml(meal.name)}</h3>${meta}<p class="meal-ingredients-preview">${escapeHtml(names || "No shopping items yet")}${meal.ingredients.length > 4 ? "…" : ""}</p></div>
       <button type="button" data-edit-meal="${meal.id}" aria-label="Edit ${escapeHtml(meal.name)}">•••</button>
     </article>`;
-  }).join("") : `<div class="empty-state"><strong>No meals found</strong><p>Try another search or add a new meal.</p></div>`;
+  }).join("") : `<div class="empty-state"><strong>No meals found</strong><p>Try another search, category or rating filter.</p></div>`;
 }
 
 function renderPicker() {
@@ -1020,11 +1098,54 @@ function addIngredientRow(ingredient = {}) {
   $("#ingredient-list").insertAdjacentHTML("beforeend", ingredientRow(ingredient));
 }
 
+function renderMealTagEditor() {
+  const tags = knownMealTags();
+  const extras = editingMealTags.filter(tag => !tags.some(existing => keyName(existing) === keyName(tag)));
+  const allTags = [...tags, ...extras];
+  $("#meal-tag-editor").innerHTML = allTags.map(tag => {
+    const selected = editingMealTags.some(value => keyName(value) === keyName(tag));
+    return `<button class="meal-editor-tag ${selected ? "selected" : ""}" type="button" data-edit-meal-tag="${escapeHtml(tag)}" aria-pressed="${selected}">${escapeHtml(tag)}</button>`;
+  }).join("");
+}
+
+function renderMealRatingEditor() {
+  $("#meal-rating-editor").innerHTML = Array.from({ length: 5 }, (_, index) => {
+    const value = index + 1;
+    return `<button class="meal-rating-star ${value <= editingMealRating ? "active" : ""}" type="button" data-edit-meal-rating="${value}" aria-label="${value} star${value === 1 ? "" : "s"}" aria-pressed="${editingMealRating === value}">★</button>`;
+  }).join("");
+  $("#meal-rating-clear").textContent = editingMealRating ? "Clear rating" : "Not rated";
+}
+
+function toggleEditingMealTag(tag) {
+  const value = normaliseName(tag);
+  if (!value) return;
+  const index = editingMealTags.findIndex(existing => keyName(existing) === keyName(value));
+  if (index >= 0) editingMealTags.splice(index, 1);
+  else editingMealTags.push(DEFAULT_MEAL_TAGS.find(existing => keyName(existing) === keyName(value)) || value);
+  editingMealTags = normaliseMealTags(editingMealTags);
+  renderMealTagEditor();
+}
+
+function addCustomMealTag() {
+  const input = $("#meal-tag-input");
+  const value = normaliseName(input.value);
+  if (!value) return;
+  if (!editingMealTags.some(tag => keyName(tag) === keyName(value))) editingMealTags.push(value);
+  editingMealTags = normaliseMealTags(editingMealTags);
+  input.value = "";
+  renderMealTagEditor();
+}
+
 function openMealEditor(mealId = null) {
   const meal = mealId ? findMeal(mealId) : null;
   $("#meal-editor-title").textContent = meal ? "Edit meal" : "New meal";
   $("#meal-id").value = meal?.id || "";
   $("#meal-name").value = meal?.name || "";
+  editingMealTags = normaliseMealTags(meal?.tags || []);
+  editingMealRating = normaliseMealRating(meal?.rating || 0);
+  $("#meal-tag-input").value = "";
+  renderMealTagEditor();
+  renderMealRatingEditor();
   $("#ingredient-list").innerHTML = "";
   (meal?.ingredients?.length ? meal.ingredients : [{}, {}, {}]).forEach(addIngredientRow);
   $("#delete-meal").hidden = !meal;
@@ -1051,9 +1172,11 @@ function saveMealFromForm(event) {
     if (!meal) return;
     meal.name = name;
     meal.ingredients = ingredients;
+    meal.tags = normaliseMealTags(editingMealTags);
+    meal.rating = normaliseMealRating(editingMealRating);
     touchRecord(meal, now);
   } else {
-    data.meals.push({ id: uid("meal"), name, ingredients, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null });
+    data.meals.push({ id: uid("meal"), name, ingredients, tags: normaliseMealTags(editingMealTags), rating: normaliseMealRating(editingMealRating), createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null });
     touchSharedState(now);
   }
   saveData();
@@ -2068,7 +2191,7 @@ function buildSharedWeekPayload() {
   })));
   const meals = data.meals
     .filter(meal => !meal.deletedAt && usedMealIds.has(meal.id))
-    .map(meal => ({ id: meal.id, name: meal.name, ingredients: clone(meal.ingredients || []), sourceUrl: meal.sourceUrl || null }));
+    .map(meal => ({ id: meal.id, name: meal.name, ingredients: clone(meal.ingredients || []), tags: clone(normaliseMealTags(meal.tags)), rating: normaliseMealRating(meal.rating), sourceUrl: meal.sourceUrl || null }));
   const usedItemIds = new Set();
   meals.forEach(meal => meal.ingredients.forEach(ingredient => usedItemIds.add(ingredient.itemId)));
   const items = data.items
@@ -2148,11 +2271,15 @@ async function importSharedWeekFile(file) {
       })).filter(ingredient => ingredient.itemId) : [];
       let meal = findMealByName(name);
       const now = new Date().toISOString();
+      const sharedTags = normaliseMealTags(sharedMeal.tags || []);
+      const sharedRating = normaliseMealRating(sharedMeal.rating || 0);
       if (!meal) {
-        meal = { id: uid("meal"), name, ingredients, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null };
+        meal = { id: uid("meal"), name, ingredients, tags: sharedTags, rating: sharedRating, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null };
         data.meals.push(meal);
       } else {
         meal.ingredients = ingredients;
+        meal.tags = sharedTags;
+        meal.rating = sharedRating;
         touchRecord(meal, now);
       }
       if (sharedMeal.sourceUrl) meal.sourceUrl = sharedMeal.sourceUrl;
@@ -2596,6 +2723,14 @@ function bindEvents() {
     if (splitMember) return toggleSplitMember(splitMember.dataset.splitMember);
     const pick = event.target.closest("[data-pick-meal]");
     if (pick) return chooseMealForDay(pick.dataset.pickMeal);
+    const mealFilterTag = event.target.closest("[data-meal-tag-filter]");
+    if (mealFilterTag) { mealTagFilter = mealFilterTag.dataset.mealTagFilter; renderMeals(); return; }
+    const mealCardTag = event.target.closest("[data-meal-card-tag]");
+    if (mealCardTag) { mealTagFilter = mealCardTag.dataset.mealCardTag; switchTab("meals"); renderMeals(); return; }
+    const editMealTag = event.target.closest("[data-edit-meal-tag]");
+    if (editMealTag) return toggleEditingMealTag(editMealTag.dataset.editMealTag);
+    const editMealRating = event.target.closest("[data-edit-meal-rating]");
+    if (editMealRating) { editingMealRating = Number(editMealRating.dataset.editMealRating); renderMealRatingEditor(); return; }
     const edit = event.target.closest("[data-edit-meal]");
     if (edit) return openMealEditor(edit.dataset.editMeal);
     const editMember = event.target.closest("[data-edit-member]");
@@ -2651,6 +2786,10 @@ function bindEvents() {
   $("#no-dinner").addEventListener("click", () => chooseMealForDay(NO_MEAL));
   $("#picker-search").addEventListener("input", renderPicker);
   $("#meal-search").addEventListener("input", renderMeals);
+  $("#meal-rating-filter").addEventListener("change", event => { mealRatingFilter = event.target.value; renderMeals(); });
+  $("#meal-tag-add").addEventListener("click", addCustomMealTag);
+  $("#meal-tag-input").addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); addCustomMealTag(); } });
+  $("#meal-rating-clear").addEventListener("click", () => { editingMealRating = 0; renderMealRatingEditor(); });
   $("#add-meal").addEventListener("click", () => openMealEditor());
   $("#add-ingredient").addEventListener("click", () => addIngredientRow({}));
   $("#ingredient-list").addEventListener("click", event => { const remove = event.target.closest(".remove-ingredient"); if (remove) remove.closest("[data-ingredient-row]").remove(); });
@@ -2753,7 +2892,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.28", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.29", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {
