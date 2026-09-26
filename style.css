@@ -359,7 +359,23 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .sheet-copy { margin: -3px 0 12px; color: var(--gh-muted); font-size: 13px; }
 body.modal-open { overflow: hidden; }
 
-.picker-rejoin-button { width: 100%; min-height: 44px; margin: 0 0 8px; }
+.picker-audience-button {
+  width: 100%;
+  min-height: 44px;
+  margin: 0 0 8px;
+  padding: 7px 11px;
+  border: 1.5px solid var(--gh-line);
+  border-radius: 15px;
+  background: var(--gh-surface-2);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--gh-ink);
+  text-align: left;
+}
+.picker-audience-button > span:first-child { color: var(--gh-muted); font-size: 11px; font-weight: 760; }
+.picker-audience-button strong { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.picker-audience-button .audience-chevron { margin-left: auto; }
 .picker-list { display: grid; gap: 6px; }
 .picker-section-title { margin: 9px 4px 2px; color: var(--gh-muted); font-size: 9px; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; }
 .picker-row {
@@ -676,6 +692,42 @@ body.modal-open { overflow: hidden; }
   line-height: 1.18;
 }
 .split-assignment-row .slot-arrow { font-size: 18px; }
+
+
+.add-assignment-button {
+  min-height: 28px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--gh-muted);
+  font-size: 9px;
+  font-weight: 820;
+  white-space: nowrap;
+}
+.add-assignment-button:active { background: rgba(37,43,51,.05); }
+.meal-period.single .add-assignment-button {
+  grid-column: 1 / -1;
+  justify-self: flex-start;
+  margin: -2px 0 0 7px;
+}
+.meal-period.single.has-unassigned { padding-bottom: 2px; }
+.split-period-heading .add-assignment-button { min-height: 24px; padding: 2px 5px; }
+.audience-all-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--gh-line);
+  border-radius: 50%;
+  background: var(--gh-surface-2);
+  color: var(--gh-ink);
+  font-size: 9px;
+  font-weight: 900;
+}
 
 .split-member-list { display: grid; gap: 7px; margin-top: 8px; }
 .split-member-choice {

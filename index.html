@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png?v=icon2">
-  <link rel="stylesheet" href="./style.css?v=1.0.23">
+  <link rel="stylesheet" href="./style.css?v=1.0.26">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -133,11 +133,14 @@
         </div>
         <button class="sheet-close" type="button" data-close="meal-picker-overlay" aria-label="Close">×</button>
       </div>
+      <button class="picker-audience-button" id="picker-audience" type="button">
+        <span>For</span><strong id="picker-audience-value">All</strong>
+        <svg class="audience-chevron" viewBox="0 0 12 8" aria-hidden="true"><path d="M1.5 1.5 6 6l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
       <label class="search-field compact">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
         <input id="picker-search" type="search" placeholder="Find a meal" autocomplete="off">
       </label>
-      <button class="secondary-button picker-rejoin-button" id="rejoin-original" type="button" hidden>Rejoin original meal</button>
       <div class="picker-list" id="picker-list"></div>
       <div class="picker-clear-actions">
         <button class="secondary-button picker-clear-button" id="clear-day" type="button">Clear dinner</button>
@@ -151,14 +154,14 @@
       <div class="sheet-handle" aria-hidden="true"></div>
       <div class="sheet-header">
         <div>
-          <p class="screen-kicker">DIFFERENT MEAL</p>
-          <h3 id="split-members-title">Split dinner</h3>
+          <p class="screen-kicker">WHO'S EATING</p>
+          <h3 id="split-members-title">Who is this meal for?</h3>
         </div>
         <button class="sheet-close" type="button" data-close="split-members-overlay" aria-label="Close">×</button>
       </div>
-      <p class="sheet-copy">Who is eating something different? Everyone else keeps their current meal.</p>
+      <p class="sheet-copy">Choose everyone, one person, or any combination of people.</p>
       <div class="split-member-list" id="split-member-list"></div>
-      <button class="primary-button full-width" id="split-members-next" type="button" disabled>Choose who is eating differently</button>
+      <button class="primary-button full-width" id="split-members-next" type="button" disabled>Done</button>
     </section>
   </div>
 
@@ -300,7 +303,7 @@
         <button class="sheet-close" type="button" data-close="copy-week-overlay" aria-label="Close">×</button>
       </div>
       <form id="copy-week-form">
-        <p class="sheet-copy">Copy dinners, lunches, splits and selected regulars from <strong id="copy-week-from"></strong>.</p>
+        <p class="sheet-copy">Copy dinners, lunches, who each meal is for, and selected regulars from <strong id="copy-week-from"></strong>.</p>
         <label class="field-label" for="copy-week-date">A date in the destination week</label>
         <input class="text-input" id="copy-week-date" type="date" required>
         <p class="settings-note" id="copy-week-target"></p>
@@ -321,7 +324,7 @@
         <button class="sheet-close" type="button" data-close="save-week-overlay" aria-label="Close">×</button>
       </div>
       <form id="save-week-form">
-        <p class="sheet-copy">Save the dinners, lunches, split meals and selected regulars as a reusable household week.</p>
+        <p class="sheet-copy">Save the dinners, lunches, who each meal is for, and selected regulars as a reusable household week.</p>
         <label class="field-label" for="saved-week-name">Name</label>
         <input class="text-input" id="saved-week-name" type="text" maxlength="60" autocomplete="off" required>
         <p class="settings-note">One-off items and bought/not-needed state are deliberately left out.</p>
@@ -340,7 +343,7 @@
         </div>
         <button class="sheet-close" type="button" data-close="saved-weeks-overlay" aria-label="Close">×</button>
       </div>
-      <p class="sheet-copy">Use a saved plan on <strong id="saved-weeks-target"></strong>. Meals, splits and selected regulars are restored with a fresh shop state.</p>
+      <p class="sheet-copy">Use a saved plan on <strong id="saved-weeks-target"></strong>. Meals, people assignments and selected regulars are restored with a fresh shop state.</p>
       <div class="saved-week-list" id="saved-week-list"></div>
     </section>
   </div>
@@ -567,7 +570,7 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.23"></script>
-  <script type="module" src="./firebase-sync.js?v=1.0.23"></script>
+  <script src="./app.js?v=1.0.26"></script>
+  <script type="module" src="./firebase-sync.js?v=1.0.26"></script>
 </body>
 </html>

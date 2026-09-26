@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.23";
+const APP_VERSION = "1.0.26";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -514,7 +514,11 @@ let pickerAssignmentId = null;
 let pickerMode = "replace";
 let splitDayIndex = null;
 let splitSlotType = "dinner";
+let splitAssignmentId = null;
+let splitReturnMode = "card";
 let pendingSplitMemberIds = [];
+let pendingAudienceAll = false;
+let pickerAudienceMemberIds = null;
 let toastTimer = null;
 let deferredInstallPrompt = null;
 
@@ -681,13 +685,35 @@ function audienceAvatarsMarkup(memberIds) {
   return `<span class="audience audience-initials-only" title="${escapeHtml(info.label)}" aria-label="${escapeHtml(info.label)}"><span class="audience-avatars">${avatars}</span></span>`;
 }
 
-function audienceControlMarkup(memberIds, slotType, dayIndex) {
+function audienceControlMarkup(memberIds, slotType, dayIndex, assignmentId) {
   const info = audienceInfo(memberIds);
   const all = memberIds === null || info.label === "Everyone";
   const content = all
     ? `<span class="audience-control-label">All</span>`
     : `<span class="audience-avatars">${info.members.slice(0, 4).map(member => memberAvatar(member, true)).join("")}</span>`;
-  return `<button class="audience-control" type="button" data-split-slot="${slotType}" data-day-index="${dayIndex}" aria-label="Choose who has this ${slotType}" title="${escapeHtml(info.label)}">${content}<svg class="audience-chevron" viewBox="0 0 12 8" aria-hidden="true"><path d="M1.5 1.5 6 6l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+  return `<button class="audience-control" type="button" data-audience-slot="${slotType}" data-day-index="${dayIndex}" data-assignment-id="${escapeHtml(assignmentId || "")}" aria-label="Choose who has this ${slotType}" title="${escapeHtml(info.label)}">${content}<svg class="audience-chevron" viewBox="0 0 12 8" aria-hidden="true"><path d="M1.5 1.5 6 6l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+}
+
+function assignmentMemberIds(assignment) {
+  const allIds = activeMembers().map(member => member.id);
+  if (!allIds.length) return [];
+  if (!assignment || assignment.memberIds === null) return allIds;
+  const active = new Set(allIds);
+  return Array.from(new Set((assignment.memberIds || []).filter(id => active.has(id))));
+}
+
+function unassignedMemberIds(assignments) {
+  const allIds = activeMembers().map(member => member.id);
+  if (!allIds.length) return [];
+  const assigned = new Set();
+  (assignments || []).forEach(assignment => assignmentMemberIds(assignment).forEach(id => assigned.add(id)));
+  return allIds.filter(id => !assigned.has(id));
+}
+
+function addMealForAudienceButton(slotType, dayIndex, memberIds) {
+  if (!memberIds.length) return "";
+  const avatars = memberIds.map(id => findMember(id)).filter(Boolean).slice(0, 5).map(member => memberAvatar(member, true)).join("");
+  return `<button class="add-assignment-button" type="button" data-add-assignment="${slotType}" data-day-index="${dayIndex}" data-audience-ids="${escapeHtml(memberIds.join(","))}"><span>＋ Add meal</span><span class="audience-avatars">${avatars}</span></button>`;
 }
 
 function mealPeriodMarkup(slotType, dayIndex, assignments) {
@@ -702,15 +728,18 @@ function mealPeriodMarkup(slotType, dayIndex, assignments) {
     const noMeal = assignment.mealId === NO_MEAL;
     const meal = noMeal ? null : findMeal(assignment.mealId);
     const name = meal ? meal.name : noMeal ? "No meal / eating out" : "Choose meal";
-    const canSplit = !noMeal && activeMembers().length > 1;
-    return `<div class="meal-period single ${slotType} ${canSplit ? "has-audience-control" : ""}">
+    const canChooseAudience = !noMeal && activeMembers().length > 1;
+    const missingIds = canChooseAudience ? unassignedMemberIds(assignments) : [];
+    return `<div class="meal-period single ${slotType} ${canChooseAudience ? "has-audience-control" : ""} ${missingIds.length ? "has-unassigned" : ""}">
       <button class="meal-slot ${slotType} ${meal || noMeal ? "" : "empty"}" type="button" data-day-index="${dayIndex}" data-meal-slot="${slotType}" data-assignment-id="${escapeHtml(assignment.id)}">
         <span class="meal-slot-copy"><span class="slot-label">${label}</span><strong>${escapeHtml(name)}</strong></span><span class="slot-arrow" aria-hidden="true">›</span>
       </button>
-      ${canSplit ? audienceControlMarkup(assignment.memberIds, slotType, dayIndex) : ""}
+      ${canChooseAudience ? audienceControlMarkup(assignment.memberIds, slotType, dayIndex, assignment.id) : ""}
+      ${addMealForAudienceButton(slotType, dayIndex, missingIds)}
     </div>`;
   }
 
+  const missingIds = unassignedMemberIds(assignments);
   const rows = assignments.map(assignment => {
     const meal = findMeal(assignment.mealId);
     if (!meal) return "";
@@ -719,7 +748,7 @@ function mealPeriodMarkup(slotType, dayIndex, assignments) {
     </button>`;
   }).join("");
   return `<div class="meal-period split ${slotType}">
-    <div class="split-period-heading"><span>${label}</span><button type="button" data-split-slot="${slotType}" data-day-index="${dayIndex}">＋ Different</button></div>
+    <div class="split-period-heading"><span>${label}</span>${missingIds.length ? addMealForAudienceButton(slotType, dayIndex, missingIds) : ""}</div>
     ${rows}
   </div>`;
 }
@@ -785,25 +814,52 @@ function pickerRow(meal) {
   return `<button class="picker-row" type="button" data-pick-meal="${meal.id}"><strong>${escapeHtml(meal.name)}</strong><span>${meal.ingredients.length} item${meal.ingredients.length === 1 ? "" : "s"}</span></button>`;
 }
 
-function openMealPicker(dayIndex, slotType = "dinner", assignmentId = null, mode = "replace") {
+function normalisedAudienceIds(memberIds) {
+  const allIds = activeMembers().map(member => member.id);
+  if (!allIds.length || memberIds === null) return null;
+  const active = new Set(allIds);
+  const selected = Array.from(new Set((memberIds || []).filter(id => active.has(id))));
+  if (selected.length === allIds.length && allIds.every(id => selected.includes(id))) return null;
+  return selected;
+}
+
+function renderPickerAudience() {
+  const button = $("#picker-audience");
+  if (!button) return;
+  const members = activeMembers();
+  button.hidden = !members.length;
+  if (!members.length) return;
+  const info = audienceInfo(pickerAudienceMemberIds);
+  $("#picker-audience-value").textContent = pickerAudienceMemberIds === null ? "All" : info.label;
+}
+
+function openMealPicker(dayIndex, slotType = "dinner", assignmentId = null, mode = "replace", audienceIds = undefined) {
   pickerDayIndex = Number(dayIndex);
   pickerSlotType = slotType === "lunch" ? "lunch" : "dinner";
   pickerAssignmentId = assignmentId || null;
   pickerMode = mode;
   const date = addDays(selectedWeekStart, pickerDayIndex);
   const slotLabel = pickerSlotType === "lunch" ? "Lunch" : "Dinner";
-  const suffix = pickerMode === "split-new" && pendingSplitMemberIds.length ? ` for ${audienceInfo(pendingSplitMemberIds).label}` : "";
-  $("#meal-picker-title").textContent = `${formatDayLong(date)} ${slotLabel.toLowerCase()}${suffix} · ${formatDateShort(date)}`;
+  $("#meal-picker-title").textContent = `${formatDayLong(date)} ${slotLabel.toLowerCase()} · ${formatDateShort(date)}`;
+
   const week = getWeek();
   const assignments = getSlotAssignments(week, pickerSlotType, pickerDayIndex);
-  const splitAssignmentIndex = pickerAssignmentId ? assignments.findIndex(assignment => assignment.id === pickerAssignmentId) : -1;
-  const editingSplitAssignment = splitAssignmentIndex >= 0 && assignments.length > 1;
-  const canRejoinOriginal = editingSplitAssignment && splitAssignmentIndex > 0;
-  $("#rejoin-original").hidden = !canRejoinOriginal;
-  $("#clear-day").hidden = canRejoinOriginal;
-  $("#clear-day").textContent = editingSplitAssignment ? "Remove this meal" : (pickerSlotType === "lunch" ? "Remove lunch" : "Clear dinner");
-  $("#no-dinner").hidden = pickerSlotType === "lunch" || editingSplitAssignment || pickerMode === "split-new";
+  const assignmentIndex = pickerAssignmentId ? assignments.findIndex(assignment => assignment.id === pickerAssignmentId) : -1;
+  const assignment = assignmentIndex >= 0 ? assignments[assignmentIndex] : null;
+
+  if (audienceIds !== undefined) pickerAudienceMemberIds = normalisedAudienceIds(audienceIds);
+  else if (assignment) pickerAudienceMemberIds = normalisedAudienceIds(assignment.memberIds);
+  else pickerAudienceMemberIds = null;
+
+  if ($("#rejoin-original")) $("#rejoin-original").hidden = true;
+  const editingSubset = !!assignment && assignment.memberIds !== null;
+  $("#clear-day").hidden = false;
+  $("#clear-day").textContent = assignment && (assignments.length > 1 || editingSubset)
+    ? "Remove this meal"
+    : (pickerSlotType === "lunch" ? "Remove lunch" : "Clear dinner");
+  $("#no-dinner").hidden = pickerSlotType === "lunch" || assignments.length > 1 || editingSubset || pickerMode === "add";
   $("#picker-search").value = "";
+  renderPickerAudience();
   renderPicker();
   openOverlay("meal-picker-overlay");
 }
@@ -825,43 +881,64 @@ function normaliseSplitSlot(assignments) {
   return clean;
 }
 
+function applyMealToAudience(assignments, mealId, assignmentId, audienceIds, now) {
+  const allIds = activeMembers().map(member => member.id);
+  if (!allIds.length) {
+    const existing = assignmentId ? assignments.find(assignment => assignment.id === assignmentId) : null;
+    if (existing) return [{ ...existing, mealId, memberIds: null, updatedAt: now, updatedBy: currentMemberId() }];
+    return [makeAssignment(mealId, null, now, null, currentMemberId())];
+  }
+
+  const compact = normalisedAudienceIds(audienceIds);
+  const selectedIds = compact === null ? allIds : compact;
+  if (!selectedIds.length) return assignments;
+  const selected = new Set(selectedIds);
+
+  // Choosing All intentionally makes this the only meal for the slot.
+  if (compact === null) {
+    const existing = assignmentId ? assignments.find(assignment => assignment.id === assignmentId) : null;
+    if (existing) return [{ ...existing, mealId, memberIds: null, updatedAt: now, updatedBy: currentMemberId() }];
+    return [makeAssignment(mealId, null, now, null, currentMemberId())];
+  }
+
+  let targetFound = false;
+  const next = [];
+  assignments.forEach(assignment => {
+    if (assignment.id === assignmentId) {
+      targetFound = true;
+      next.push({ ...assignment, mealId, memberIds: selectedIds, updatedAt: now, updatedBy: currentMemberId() });
+      return;
+    }
+    const existingIds = assignment.memberIds === null ? allIds : assignment.memberIds;
+    const remainingIds = existingIds.filter(id => !selected.has(id));
+    if (remainingIds.length) next.push({ ...assignment, memberIds: remainingIds, updatedAt: now, updatedBy: currentMemberId() });
+  });
+
+  if (!targetFound) next.push(makeAssignment(mealId, selectedIds, now, null, currentMemberId()));
+  return normaliseSplitSlot(next);
+}
+
 function chooseMealForDay(mealId) {
   const week = getWeek();
   const assignments = getSlotAssignments(week, pickerSlotType, pickerDayIndex);
   const now = new Date().toISOString();
 
-  if (pickerMode === "split-new") {
-    if (!mealId || mealId === NO_MEAL || !pendingSplitMemberIds.length) return;
-    const selected = new Set(pendingSplitMemberIds);
-    const allIds = activeMembers().map(member => member.id);
-    let next = assignments.map(assignment => {
-      const explicitIds = assignment.memberIds === null ? allIds : assignment.memberIds;
-      return { ...assignment, memberIds: explicitIds.filter(id => !selected.has(id)), updatedAt: now, updatedBy: currentMemberId() };
-    }).filter(assignment => assignment.memberIds.length);
-    next.push(makeAssignment(mealId, pendingSplitMemberIds, now, null, currentMemberId()));
-    week.slots[pickerSlotType][pickerDayIndex] = normaliseSplitSlot(next);
-    pendingSplitMemberIds = [];
-  } else if (pickerAssignmentId) {
-    const index = assignments.findIndex(assignment => assignment.id === pickerAssignmentId);
-    if (index >= 0) {
-      if (!mealId) {
-        if (assignments.length > 1) {
-          const keep = assignments.filter((_, assignmentIndex) => assignmentIndex !== index);
-          if (keep.length === 1) keep[0].memberIds = null;
-          week.slots[pickerSlotType][pickerDayIndex] = keep;
-        } else {
-          week.slots[pickerSlotType][pickerDayIndex] = [];
-        }
-      } else {
-        assignments[index].mealId = mealId;
-        assignments[index].updatedAt = now;
-        assignments[index].updatedBy = currentMemberId();
-      }
+  if (!mealId) {
+    if (pickerAssignmentId) {
+      week.slots[pickerSlotType][pickerDayIndex] = normaliseSplitSlot(assignments.filter(assignment => assignment.id !== pickerAssignmentId));
+    } else {
+      week.slots[pickerSlotType][pickerDayIndex] = [];
     }
-  } else if (!mealId) {
-    week.slots[pickerSlotType][pickerDayIndex] = [];
+  } else if (mealId === NO_MEAL) {
+    week.slots[pickerSlotType][pickerDayIndex] = [makeAssignment(NO_MEAL, null, now, pickerAssignmentId || null, currentMemberId())];
   } else {
-    week.slots[pickerSlotType][pickerDayIndex] = [makeAssignment(mealId, null, now, null, currentMemberId())];
+    week.slots[pickerSlotType][pickerDayIndex] = applyMealToAudience(
+      assignments,
+      mealId,
+      pickerAssignmentId,
+      pickerAudienceMemberIds,
+      now
+    );
   }
 
   touchWeekField(week, pickerSlotType, pickerDayIndex, now);
@@ -872,6 +949,7 @@ function chooseMealForDay(mealId) {
   }
   syncLegacyWeekSlots(week);
   saveData();
+  pickerAudienceMemberIds = null;
   closeOverlay("meal-picker-overlay");
   renderAll();
 }
@@ -1335,7 +1413,7 @@ function cleanMemberFromPlans(memberId) {
 
 function deleteMember() {
   const member = findMember($("#member-id").value);
-  if (!member || !confirm(`Remove ${member.name} from this household? Existing split meal plans will be adjusted.`)) return;
+  if (!member || !confirm(`Remove ${member.name} from this household? Existing meal assignments will be adjusted.`)) return;
   const now = new Date().toISOString();
   member.deletedAt = now;
   touchRecord(member, now);
@@ -1350,71 +1428,113 @@ function deleteMember() {
   showToast("Person removed");
 }
 
-function openSplitMembers(dayIndex, slotType) {
+function openSplitMembers(dayIndex, slotType, assignmentId = null, returnMode = "card", initialIds = undefined) {
   const members = activeMembers();
-  if (members.length < 2) {
-    showToast("Add at least two people to split a meal");
+  if (!members.length) {
+    showToast("Add people to the household first");
     return;
   }
-  const week = getWeek();
-  const assignments = getSlotAssignments(week, slotType, Number(dayIndex));
-  if (!assignments.length || assignments.every(assignment => assignment.mealId === NO_MEAL)) return;
+
   splitDayIndex = Number(dayIndex);
   splitSlotType = slotType === "lunch" ? "lunch" : "dinner";
-  pendingSplitMemberIds = [];
+  splitAssignmentId = assignmentId || null;
+  splitReturnMode = returnMode === "picker" ? "picker" : "card";
+
+  const week = getWeek();
+  const assignments = getSlotAssignments(week, splitSlotType, splitDayIndex);
+  const assignment = splitAssignmentId ? assignments.find(entry => entry.id === splitAssignmentId) : null;
+  const sourceIds = initialIds !== undefined
+    ? normalisedAudienceIds(initialIds)
+    : (assignment ? normalisedAudienceIds(assignment.memberIds) : pickerAudienceMemberIds);
+  pendingAudienceAll = sourceIds === null;
+  pendingSplitMemberIds = sourceIds === null ? [] : [...(sourceIds || [])];
+
   const date = addDays(selectedWeekStart, splitDayIndex);
-  $("#split-members-title").textContent = `Split ${splitSlotType} · ${formatDayLong(date)}`;
-  $("#split-member-list").innerHTML = members.map(member => `<button type="button" class="split-member-choice" data-split-member="${escapeHtml(member.id)}">${memberAvatar(member)}<span><strong>${escapeHtml(member.name)}</strong><small>${member.role === "child" ? "Child" : "Adult"}</small></span><span class="member-check">✓</span></button>`).join("");
+  $("#split-members-title").textContent = `Who is this ${splitSlotType} for?`;
+  const allSelected = pendingAudienceAll;
+  $("#split-member-list").innerHTML = `
+    <button type="button" class="split-member-choice audience-all-choice ${allSelected ? "selected" : ""}" data-audience-all>
+      <span class="audience-all-mark">All</span>
+      <span><strong>All</strong><small>Everyone in the household</small></span>
+      <span class="member-check">✓</span>
+    </button>
+    ${members.map(member => `<button type="button" class="split-member-choice ${pendingSplitMemberIds.includes(member.id) ? "selected" : ""}" data-split-member="${escapeHtml(member.id)}">${memberAvatar(member)}<span><strong>${escapeHtml(member.name)}</strong><small>${member.role === "child" ? "Child" : "Adult"}</small></span><span class="member-check">✓</span></button>`).join("")}`;
+  $("#split-members-next").textContent = "Done";
   updateSplitMemberButton();
   openOverlay("split-members-overlay");
 }
 
+function selectAllSplitMembers() {
+  pendingAudienceAll = true;
+  pendingSplitMemberIds = [];
+  updateSplitMemberSelection();
+}
+
 function toggleSplitMember(memberId) {
+  if (pendingAudienceAll) {
+    pendingAudienceAll = false;
+    pendingSplitMemberIds = [memberId];
+    updateSplitMemberSelection();
+    return;
+  }
   const set = new Set(pendingSplitMemberIds);
   if (set.has(memberId)) set.delete(memberId); else set.add(memberId);
-  pendingSplitMemberIds = Array.from(set);
-  $$("[data-split-member]").forEach(button => button.classList.toggle("selected", set.has(button.dataset.splitMember)));
+  if (set.size === activeMembers().length) {
+    pendingAudienceAll = true;
+    pendingSplitMemberIds = [];
+  } else {
+    pendingSplitMemberIds = Array.from(set);
+  }
+  updateSplitMemberSelection();
+}
+
+function updateSplitMemberSelection() {
+  const set = new Set(pendingSplitMemberIds);
+  $$('[data-split-member]').forEach(button => button.classList.toggle("selected", !pendingAudienceAll && set.has(button.dataset.splitMember)));
+  const allButton = $('[data-audience-all]');
+  if (allButton) allButton.classList.toggle("selected", pendingAudienceAll);
   updateSplitMemberButton();
 }
 
 function updateSplitMemberButton() {
   const button = $("#split-members-next");
-  const total = activeMembers().length;
-  const count = pendingSplitMemberIds.length;
-  button.disabled = count < 1 || count >= total;
-  button.textContent = count ? `Choose meal for ${audienceInfo(pendingSplitMemberIds).label}` : "Choose who is eating differently";
+  const count = pendingAudienceAll ? activeMembers().length : pendingSplitMemberIds.length;
+  button.disabled = count < 1;
+  button.textContent = "Done";
 }
 
 function continueSplitMeal() {
-  if (!pendingSplitMemberIds.length || pendingSplitMemberIds.length >= activeMembers().length) return;
-  closeOverlay("split-members-overlay");
-  openMealPicker(splitDayIndex, splitSlotType, null, "split-new");
-}
+  if (!pendingAudienceAll && !pendingSplitMemberIds.length) return;
+  const selectedIds = pendingAudienceAll ? null : normalisedAudienceIds(pendingSplitMemberIds);
 
-function rejoinOriginalMeal() {
+  if (splitReturnMode === "picker") {
+    pickerAudienceMemberIds = selectedIds;
+    renderPickerAudience();
+    closeOverlay("split-members-overlay");
+    return;
+  }
+
   const week = getWeek();
-  const assignments = getSlotAssignments(week, pickerSlotType, pickerDayIndex);
-  const index = assignments.findIndex(assignment => assignment.id === pickerAssignmentId);
-  if (index <= 0 || assignments.length < 2) return;
+  const assignments = getSlotAssignments(week, splitSlotType, splitDayIndex);
+  const assignment = assignments.find(entry => entry.id === splitAssignmentId);
+  if (!assignment) {
+    closeOverlay("split-members-overlay");
+    return;
+  }
 
   const now = new Date().toISOString();
-  const returning = assignments[index];
-  const original = assignments[0];
-  const allIds = activeMembers().map(member => member.id);
-  const originalIds = original.memberIds === null ? allIds : original.memberIds;
-  const returningIds = returning.memberIds === null ? allIds : returning.memberIds;
-  original.memberIds = Array.from(new Set([...originalIds, ...returningIds]));
-  original.updatedAt = now;
-  original.updatedBy = currentMemberId();
-
-  const next = normaliseSplitSlot(assignments.filter((_, assignmentIndex) => assignmentIndex !== index));
-  week.slots[pickerSlotType][pickerDayIndex] = next;
-  touchWeekField(week, pickerSlotType, pickerDayIndex, now);
+  week.slots[splitSlotType][splitDayIndex] = applyMealToAudience(
+    assignments,
+    assignment.mealId,
+    assignment.id,
+    selectedIds,
+    now
+  );
+  touchWeekField(week, splitSlotType, splitDayIndex, now);
   syncLegacyWeekSlots(week);
   saveData();
-  closeOverlay("meal-picker-overlay");
+  closeOverlay("split-members-overlay");
   renderAll();
-  showToast("Rejoined original meal");
 }
 
 
@@ -2366,10 +2486,17 @@ function changeWeek(offset) {
 
 function bindEvents() {
   document.addEventListener("click", event => {
-    const splitButton = event.target.closest("[data-split-slot]");
-    if (splitButton) return openSplitMembers(splitButton.dataset.dayIndex, splitButton.dataset.splitSlot);
+    const audienceButton = event.target.closest("[data-audience-slot]");
+    if (audienceButton) return openSplitMembers(audienceButton.dataset.dayIndex, audienceButton.dataset.audienceSlot, audienceButton.dataset.assignmentId || null, "card");
+    const addAssignment = event.target.closest("[data-add-assignment]");
+    if (addAssignment) {
+      const ids = String(addAssignment.dataset.audienceIds || "").split(",").filter(Boolean);
+      return openMealPicker(addAssignment.dataset.dayIndex, addAssignment.dataset.addAssignment, null, "add", ids);
+    }
     const slot = event.target.closest("[data-day-index][data-meal-slot]");
     if (slot) return openMealPicker(slot.dataset.dayIndex, slot.dataset.mealSlot, slot.dataset.assignmentId || null);
+    const allAudience = event.target.closest("[data-audience-all]");
+    if (allAudience) return selectAllSplitMembers();
     const splitMember = event.target.closest("[data-split-member]");
     if (splitMember) return toggleSplitMember(splitMember.dataset.splitMember);
     const pick = event.target.closest("[data-pick-meal]");
@@ -2441,7 +2568,7 @@ function bindEvents() {
   $("#delete-meal").addEventListener("click", deleteCurrentMeal);
 
   $("#split-members-next").addEventListener("click", continueSplitMeal);
-  $("#rejoin-original").addEventListener("click", rejoinOriginalMeal);
+  $("#picker-audience").addEventListener("click", () => openSplitMembers(pickerDayIndex, pickerSlotType, pickerAssignmentId, "picker", pickerAudienceMemberIds));
 
   $("#add-shop-item").addEventListener("click", openShopItemEditor);
   $("#shop-item-name").addEventListener("change", syncShopCategoryFromKnownName);
@@ -2531,7 +2658,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.23", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.26", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {
