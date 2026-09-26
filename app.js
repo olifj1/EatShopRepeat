@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.27";
+const APP_VERSION = "1.0.28";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -81,6 +81,16 @@ function formatWeekRange(start) {
     return `${formatDateShort(start)} – ${formatDateShort(end)} ${end.getFullYear()}`;
   }
   return `${formatDateShort(start)} ${start.getFullYear()} – ${formatDateShort(end)} ${end.getFullYear()}`;
+}
+
+function formatWeekHeading(start) {
+  const currentStart = startOfWeek(new Date(), data.settings.weekStartDay);
+  const weekOffset = Math.round(dateDistance(currentStart, start) / 7);
+  if (weekOffset === 0) return "This week";
+  if (weekOffset === 1) return "Next week";
+  if (weekOffset === -1) return "Last week";
+  const label = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "long" }).format(start);
+  return `Week of ${label}`;
 }
 
 function emptyWeek(startKey) {
@@ -761,6 +771,7 @@ function mealPeriodMarkup(slotType, dayIndex, assignments) {
 function renderWeek() {
   const week = getWeek();
   const todayKey = localDateKey(new Date());
+  $("#week-title").textContent = formatWeekHeading(selectedWeekStart);
   $("#week-range").textContent = formatWeekRange(selectedWeekStart);
   $("#week-list").innerHTML = Array.from({ length: 7 }, (_, index) => {
     const date = addDays(selectedWeekStart, index);
@@ -2742,7 +2753,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.27", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.28", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {
