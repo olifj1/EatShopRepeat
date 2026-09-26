@@ -954,3 +954,21 @@ body.modal-open { overflow: hidden; }
 .sync-error { color: #9b5d55; }
 .sync-offline { color: var(--gh-muted); }
 .cloud-sync-card:has(#cloud-sync-state:is(:not(:empty))) .cloud-status-dot { background: #6f8069; }
+
+
+/* v1.0.27: main meal + explicit alternative meal flow */
+.add-alternative-button {
+  min-height: 31px;
+  margin: 2px 0 0 7px;
+  padding: 4px 9px;
+  border: 1px solid rgba(37,43,51,.12);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--gh-muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-align: left;
+}
+.add-alternative-button:active { background: rgba(37,43,51,.05); }
+.meal-period.single.has-alternative { padding-bottom: 2px; }
+.meal-period.split > .add-alternative-button { margin: 4px 0 0 0; }

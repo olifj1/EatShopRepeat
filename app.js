@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.26";
+const APP_VERSION = "1.0.27";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -519,6 +519,7 @@ let splitReturnMode = "card";
 let pendingSplitMemberIds = [];
 let pendingAudienceAll = false;
 let pickerAudienceMemberIds = null;
+let pendingAlternativeMealId = null;
 let toastTimer = null;
 let deferredInstallPrompt = null;
 
@@ -710,10 +711,16 @@ function unassignedMemberIds(assignments) {
   return allIds.filter(id => !assigned.has(id));
 }
 
-function addMealForAudienceButton(slotType, dayIndex, memberIds) {
-  if (!memberIds.length) return "";
-  const avatars = memberIds.map(id => findMember(id)).filter(Boolean).slice(0, 5).map(member => memberAvatar(member, true)).join("");
-  return `<button class="add-assignment-button" type="button" data-add-assignment="${slotType}" data-day-index="${dayIndex}" data-audience-ids="${escapeHtml(memberIds.join(","))}"><span>＋ Add meal</span><span class="audience-avatars">${avatars}</span></button>`;
+function canAddAlternativeMeal(assignments) {
+  const members = activeMembers();
+  if (members.length <= 1 || !assignments?.length) return false;
+  if (assignments.some(assignment => assignment.mealId === NO_MEAL)) return false;
+  // Keep offering alternatives until every household member has their own assignment.
+  return assignments.length < members.length;
+}
+
+function addAlternativeMealButton(slotType, dayIndex) {
+  return `<button class="add-alternative-button" type="button" data-add-alternative="${slotType}" data-day-index="${dayIndex}">＋ Add alternative meal</button>`;
 }
 
 function mealPeriodMarkup(slotType, dayIndex, assignments) {
@@ -728,18 +735,15 @@ function mealPeriodMarkup(slotType, dayIndex, assignments) {
     const noMeal = assignment.mealId === NO_MEAL;
     const meal = noMeal ? null : findMeal(assignment.mealId);
     const name = meal ? meal.name : noMeal ? "No meal / eating out" : "Choose meal";
-    const canChooseAudience = !noMeal && activeMembers().length > 1;
-    const missingIds = canChooseAudience ? unassignedMemberIds(assignments) : [];
-    return `<div class="meal-period single ${slotType} ${canChooseAudience ? "has-audience-control" : ""} ${missingIds.length ? "has-unassigned" : ""}">
+    const showAlternative = !!meal && canAddAlternativeMeal(assignments);
+    return `<div class="meal-period single ${slotType} ${showAlternative ? "has-alternative" : ""}">
       <button class="meal-slot ${slotType} ${meal || noMeal ? "" : "empty"}" type="button" data-day-index="${dayIndex}" data-meal-slot="${slotType}" data-assignment-id="${escapeHtml(assignment.id)}">
         <span class="meal-slot-copy"><span class="slot-label">${label}</span><strong>${escapeHtml(name)}</strong></span><span class="slot-arrow" aria-hidden="true">›</span>
       </button>
-      ${canChooseAudience ? audienceControlMarkup(assignment.memberIds, slotType, dayIndex, assignment.id) : ""}
-      ${addMealForAudienceButton(slotType, dayIndex, missingIds)}
+      ${showAlternative ? addAlternativeMealButton(slotType, dayIndex) : ""}
     </div>`;
   }
 
-  const missingIds = unassignedMemberIds(assignments);
   const rows = assignments.map(assignment => {
     const meal = findMeal(assignment.mealId);
     if (!meal) return "";
@@ -748,8 +752,9 @@ function mealPeriodMarkup(slotType, dayIndex, assignments) {
     </button>`;
   }).join("");
   return `<div class="meal-period split ${slotType}">
-    <div class="split-period-heading"><span>${label}</span>${missingIds.length ? addMealForAudienceButton(slotType, dayIndex, missingIds) : ""}</div>
+    <div class="split-period-heading"><span>${label}</span></div>
     ${rows}
+    ${canAddAlternativeMeal(assignments) ? addAlternativeMealButton(slotType, dayIndex) : ""}
   </div>`;
 }
 
@@ -824,42 +829,39 @@ function normalisedAudienceIds(memberIds) {
 }
 
 function renderPickerAudience() {
+  // Audience is intentionally not chosen in the meal picker. A normal meal
+  // defaults to everyone; alternative meals ask who is eating it afterwards.
   const button = $("#picker-audience");
-  if (!button) return;
-  const members = activeMembers();
-  button.hidden = !members.length;
-  if (!members.length) return;
-  const info = audienceInfo(pickerAudienceMemberIds);
-  $("#picker-audience-value").textContent = pickerAudienceMemberIds === null ? "All" : info.label;
+  if (button) button.hidden = true;
 }
 
-function openMealPicker(dayIndex, slotType = "dinner", assignmentId = null, mode = "replace", audienceIds = undefined) {
+function openMealPicker(dayIndex, slotType = "dinner", assignmentId = null, mode = "replace") {
   pickerDayIndex = Number(dayIndex);
   pickerSlotType = slotType === "lunch" ? "lunch" : "dinner";
   pickerAssignmentId = assignmentId || null;
   pickerMode = mode;
   const date = addDays(selectedWeekStart, pickerDayIndex);
   const slotLabel = pickerSlotType === "lunch" ? "Lunch" : "Dinner";
-  $("#meal-picker-title").textContent = `${formatDayLong(date)} ${slotLabel.toLowerCase()} · ${formatDateShort(date)}`;
+  $("#meal-picker-title").textContent = pickerMode === "alternative"
+    ? `Alternative ${slotLabel.toLowerCase()} · ${formatDateShort(date)}`
+    : `${formatDayLong(date)} ${slotLabel.toLowerCase()} · ${formatDateShort(date)}`;
 
   const week = getWeek();
   const assignments = getSlotAssignments(week, pickerSlotType, pickerDayIndex);
   const assignmentIndex = pickerAssignmentId ? assignments.findIndex(assignment => assignment.id === pickerAssignmentId) : -1;
   const assignment = assignmentIndex >= 0 ? assignments[assignmentIndex] : null;
 
-  if (audienceIds !== undefined) pickerAudienceMemberIds = normalisedAudienceIds(audienceIds);
-  else if (assignment) pickerAudienceMemberIds = normalisedAudienceIds(assignment.memberIds);
-  else pickerAudienceMemberIds = null;
-
-  if ($("#rejoin-original")) $("#rejoin-original").hidden = true;
-  const editingSubset = !!assignment && assignment.memberIds !== null;
-  $("#clear-day").hidden = false;
-  $("#clear-day").textContent = assignment && (assignments.length > 1 || editingSubset)
-    ? "Remove this meal"
-    : (pickerSlotType === "lunch" ? "Remove lunch" : "Clear dinner");
-  $("#no-dinner").hidden = pickerSlotType === "lunch" || assignments.length > 1 || editingSubset || pickerMode === "add";
-  $("#picker-search").value = "";
+  pickerAudienceMemberIds = assignment ? normalisedAudienceIds(assignment.memberIds) : null;
   renderPickerAudience();
+
+  $("#clear-day").hidden = pickerMode === "alternative";
+  if (pickerMode !== "alternative") {
+    $("#clear-day").textContent = assignmentIndex > 0
+      ? "Remove alternative meal"
+      : (pickerSlotType === "lunch" ? "Remove lunch" : "Clear dinner");
+  }
+  $("#no-dinner").hidden = pickerMode === "alternative" || pickerSlotType === "lunch" || assignments.length > 1 || assignmentIndex > 0;
+  $("#picker-search").value = "";
   renderPicker();
   openOverlay("meal-picker-overlay");
 }
@@ -918,25 +920,59 @@ function applyMealToAudience(assignments, mealId, assignmentId, audienceIds, now
   return normaliseSplitSlot(next);
 }
 
+function removeAlternativeAndRejoinMain(assignments, assignmentId, now) {
+  const targetIndex = assignments.findIndex(assignment => assignment.id === assignmentId);
+  if (targetIndex <= 0) return [];
+  const target = assignments[targetIndex];
+  const targetIds = assignmentMemberIds(target);
+  const remaining = assignments.filter(assignment => assignment.id !== assignmentId).map(assignment => ({ ...assignment }));
+  if (!remaining.length) return [];
+
+  const primary = remaining[0];
+  const mergedIds = Array.from(new Set([...assignmentMemberIds(primary), ...targetIds]));
+  remaining[0] = {
+    ...primary,
+    memberIds: normalisedAudienceIds(mergedIds),
+    updatedAt: now,
+    updatedBy: currentMemberId()
+  };
+  return normaliseSplitSlot(remaining);
+}
+
 function chooseMealForDay(mealId) {
   const week = getWeek();
   const assignments = getSlotAssignments(week, pickerSlotType, pickerDayIndex);
   const now = new Date().toISOString();
 
+  // Adding an alternative is a two-stage flow: choose the food first, then
+  // choose the household members who will have it.
+  if (pickerMode === "alternative" && mealId && mealId !== NO_MEAL) {
+    pendingAlternativeMealId = mealId;
+    closeOverlay("meal-picker-overlay");
+    openSplitMembers(pickerDayIndex, pickerSlotType, null, "alternative", []);
+    return;
+  }
+
   if (!mealId) {
     if (pickerAssignmentId) {
-      week.slots[pickerSlotType][pickerDayIndex] = normaliseSplitSlot(assignments.filter(assignment => assignment.id !== pickerAssignmentId));
+      const assignmentIndex = assignments.findIndex(assignment => assignment.id === pickerAssignmentId);
+      week.slots[pickerSlotType][pickerDayIndex] = assignmentIndex > 0
+        ? removeAlternativeAndRejoinMain(assignments, pickerAssignmentId, now)
+        : [];
     } else {
       week.slots[pickerSlotType][pickerDayIndex] = [];
     }
   } else if (mealId === NO_MEAL) {
     week.slots[pickerSlotType][pickerDayIndex] = [makeAssignment(NO_MEAL, null, now, pickerAssignmentId || null, currentMemberId())];
   } else {
+    // Normal meal selection defaults to everyone. Editing an existing split
+    // assignment preserves the people already attached to that meal.
+    const audience = pickerAssignmentId ? pickerAudienceMemberIds : null;
     week.slots[pickerSlotType][pickerDayIndex] = applyMealToAudience(
       assignments,
       mealId,
       pickerAssignmentId,
-      pickerAudienceMemberIds,
+      audience,
       now
     );
   }
@@ -950,6 +986,7 @@ function chooseMealForDay(mealId) {
   syncLegacyWeekSlots(week);
   saveData();
   pickerAudienceMemberIds = null;
+  pickerMode = "replace";
   closeOverlay("meal-picker-overlay");
   renderAll();
 }
@@ -1438,39 +1475,59 @@ function openSplitMembers(dayIndex, slotType, assignmentId = null, returnMode = 
   splitDayIndex = Number(dayIndex);
   splitSlotType = slotType === "lunch" ? "lunch" : "dinner";
   splitAssignmentId = assignmentId || null;
-  splitReturnMode = returnMode === "picker" ? "picker" : "card";
+  splitReturnMode = ["picker", "alternative"].includes(returnMode) ? returnMode : "card";
 
   const week = getWeek();
   const assignments = getSlotAssignments(week, splitSlotType, splitDayIndex);
   const assignment = splitAssignmentId ? assignments.find(entry => entry.id === splitAssignmentId) : null;
-  const sourceIds = initialIds !== undefined
-    ? normalisedAudienceIds(initialIds)
-    : (assignment ? normalisedAudienceIds(assignment.memberIds) : pickerAudienceMemberIds);
-  pendingAudienceAll = sourceIds === null;
-  pendingSplitMemberIds = sourceIds === null ? [] : [...(sourceIds || [])];
 
-  const date = addDays(selectedWeekStart, splitDayIndex);
-  $("#split-members-title").textContent = `Who is this ${splitSlotType} for?`;
-  const allSelected = pendingAudienceAll;
-  $("#split-member-list").innerHTML = `
-    <button type="button" class="split-member-choice audience-all-choice ${allSelected ? "selected" : ""}" data-audience-all>
-      <span class="audience-all-mark">All</span>
-      <span><strong>All</strong><small>Everyone in the household</small></span>
-      <span class="member-check">✓</span>
-    </button>
-    ${members.map(member => `<button type="button" class="split-member-choice ${pendingSplitMemberIds.includes(member.id) ? "selected" : ""}" data-split-member="${escapeHtml(member.id)}">${memberAvatar(member)}<span><strong>${escapeHtml(member.name)}</strong><small>${member.role === "child" ? "Child" : "Adult"}</small></span><span class="member-check">✓</span></button>`).join("")}`;
+  if (splitReturnMode === "alternative") {
+    pendingAudienceAll = false;
+    pendingSplitMemberIds = [];
+    const meal = findMeal(pendingAlternativeMealId);
+    $("#split-members-title").textContent = meal ? `Who is having ${meal.name}?` : "Who is having this meal?";
+    $("#split-members-overlay .sheet-copy").textContent = "Choose one or more people. They’ll move from their current meal to this alternative.";
+    $("#split-member-list").innerHTML = members.map(member => `<button type="button" class="split-member-choice" data-split-member="${escapeHtml(member.id)}">${memberAvatar(member)}<span><strong>${escapeHtml(member.name)}</strong><small>${member.role === "child" ? "Child" : "Adult"}</small></span><span class="member-check">✓</span></button>`).join("");
+  } else {
+    const sourceIds = initialIds !== undefined
+      ? normalisedAudienceIds(initialIds)
+      : (assignment ? normalisedAudienceIds(assignment.memberIds) : pickerAudienceMemberIds);
+    pendingAudienceAll = sourceIds === null;
+    pendingSplitMemberIds = sourceIds === null ? [] : [...(sourceIds || [])];
+    $("#split-members-title").textContent = `Who is this ${splitSlotType} for?`;
+    $("#split-members-overlay .sheet-copy").textContent = "Choose everyone, one person, or any combination of people.";
+    const allSelected = pendingAudienceAll;
+    $("#split-member-list").innerHTML = `
+      <button type="button" class="split-member-choice audience-all-choice ${allSelected ? "selected" : ""}" data-audience-all>
+        <span class="audience-all-mark">All</span>
+        <span><strong>All</strong><small>Everyone in the household</small></span>
+        <span class="member-check">✓</span>
+      </button>
+      ${members.map(member => `<button type="button" class="split-member-choice ${pendingSplitMemberIds.includes(member.id) ? "selected" : ""}" data-split-member="${escapeHtml(member.id)}">${memberAvatar(member)}<span><strong>${escapeHtml(member.name)}</strong><small>${member.role === "child" ? "Child" : "Adult"}</small></span><span class="member-check">✓</span></button>`).join("")}`;
+  }
+
   $("#split-members-next").textContent = "Done";
   updateSplitMemberButton();
   openOverlay("split-members-overlay");
 }
 
 function selectAllSplitMembers() {
+  if (splitReturnMode === "alternative") return;
   pendingAudienceAll = true;
   pendingSplitMemberIds = [];
   updateSplitMemberSelection();
 }
 
 function toggleSplitMember(memberId) {
+  if (splitReturnMode === "alternative") {
+    const set = new Set(pendingSplitMemberIds);
+    if (set.has(memberId)) set.delete(memberId); else set.add(memberId);
+    pendingSplitMemberIds = Array.from(set);
+    pendingAudienceAll = false;
+    updateSplitMemberSelection();
+    return;
+  }
+
   if (pendingAudienceAll) {
     pendingAudienceAll = false;
     pendingSplitMemberIds = [memberId];
@@ -1499,14 +1556,46 @@ function updateSplitMemberSelection() {
 function updateSplitMemberButton() {
   const button = $("#split-members-next");
   const count = pendingAudienceAll ? activeMembers().length : pendingSplitMemberIds.length;
+  if (splitReturnMode === "alternative") {
+    button.disabled = count < 1 || count >= activeMembers().length;
+    button.textContent = count ? `Use for ${count} ${count === 1 ? "person" : "people"}` : "Choose who is having it";
+    return;
+  }
   button.disabled = count < 1;
   button.textContent = "Done";
 }
 
 function continueSplitMeal() {
   if (!pendingAudienceAll && !pendingSplitMemberIds.length) return;
-  const selectedIds = pendingAudienceAll ? null : normalisedAudienceIds(pendingSplitMemberIds);
 
+  if (splitReturnMode === "alternative") {
+    if (!pendingAlternativeMealId || pendingSplitMemberIds.length >= activeMembers().length) return;
+    const week = getWeek();
+    const assignments = getSlotAssignments(week, splitSlotType, splitDayIndex);
+    const now = new Date().toISOString();
+    week.slots[splitSlotType][splitDayIndex] = applyMealToAudience(
+      assignments,
+      pendingAlternativeMealId,
+      null,
+      pendingSplitMemberIds,
+      now
+    );
+    touchWeekField(week, splitSlotType, splitDayIndex, now);
+    const meal = findMeal(pendingAlternativeMealId);
+    if (meal) {
+      meal.lastUsedAt = now;
+      touchRecord(meal, now);
+    }
+    syncLegacyWeekSlots(week);
+    saveData();
+    pendingAlternativeMealId = null;
+    pickerMode = "replace";
+    closeOverlay("split-members-overlay");
+    renderAll();
+    return;
+  }
+
+  const selectedIds = pendingAudienceAll ? null : normalisedAudienceIds(pendingSplitMemberIds);
   if (splitReturnMode === "picker") {
     pickerAudienceMemberIds = selectedIds;
     renderPickerAudience();
@@ -2486,13 +2575,8 @@ function changeWeek(offset) {
 
 function bindEvents() {
   document.addEventListener("click", event => {
-    const audienceButton = event.target.closest("[data-audience-slot]");
-    if (audienceButton) return openSplitMembers(audienceButton.dataset.dayIndex, audienceButton.dataset.audienceSlot, audienceButton.dataset.assignmentId || null, "card");
-    const addAssignment = event.target.closest("[data-add-assignment]");
-    if (addAssignment) {
-      const ids = String(addAssignment.dataset.audienceIds || "").split(",").filter(Boolean);
-      return openMealPicker(addAssignment.dataset.dayIndex, addAssignment.dataset.addAssignment, null, "add", ids);
-    }
+    const addAlternative = event.target.closest("[data-add-alternative]");
+    if (addAlternative) return openMealPicker(addAlternative.dataset.dayIndex, addAlternative.dataset.addAlternative, null, "alternative");
     const slot = event.target.closest("[data-day-index][data-meal-slot]");
     if (slot) return openMealPicker(slot.dataset.dayIndex, slot.dataset.mealSlot, slot.dataset.assignmentId || null);
     const allAudience = event.target.closest("[data-audience-all]");
@@ -2568,7 +2652,7 @@ function bindEvents() {
   $("#delete-meal").addEventListener("click", deleteCurrentMeal);
 
   $("#split-members-next").addEventListener("click", continueSplitMeal);
-  $("#picker-audience").addEventListener("click", () => openSplitMembers(pickerDayIndex, pickerSlotType, pickerAssignmentId, "picker", pickerAudienceMemberIds));
+  $("#picker-audience")?.addEventListener("click", () => openSplitMembers(pickerDayIndex, pickerSlotType, pickerAssignmentId, "picker", pickerAudienceMemberIds));
 
   $("#add-shop-item").addEventListener("click", openShopItemEditor);
   $("#shop-item-name").addEventListener("change", syncShopCategoryFromKnownName);
@@ -2658,7 +2742,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.26", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.27", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {

@@ -1,3 +1,3 @@
-# MealPlanner v1.0.26
+# MealPlanner v1.0.27
 
-Meal assignment UX update. Meal pickers now include a **For: All** audience control, so a meal can be assigned to everyone or any selected household members directly. Existing split plans migrate without a data change. Unassigned household members get a compact **+ Add meal** action, and the old split/rejoin interaction is removed. Firebase data shape and sync configuration are unchanged.
+Refined household meal assignment UX. Normal dinner/lunch selection now defaults to the whole household. An explicit **Add alternative meal** flow chooses the alternative food first and then asks which household members are having it. Split cards show member initials beside each meal and continue offering another alternative until every household member has an individual assignment. Removing an alternative returns those people to the main meal. Firebase/data structures are unchanged.
