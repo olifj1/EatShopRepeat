@@ -572,9 +572,9 @@ let pickerAudienceMemberIds = null;
 let pendingAlternativeMealId = null;
 let toastTimer = null;
 let deferredInstallPrompt = null;
-let mealTagFilter = "all";
+let mealTagFilters = [];
 let mealRatingFilter = "any";
-let pickerTagFilter = "all";
+let pickerTagFilters = [];
 let pickerRatingFilter = "any";
 let editingMealTags = [];
 let editingMealRating = 0;
@@ -847,14 +847,35 @@ function mealRatingText(rating) {
   return value ? `${"★".repeat(value)}${"☆".repeat(5 - value)}` : "";
 }
 
+function cleanActiveTagFilters(filters, tags) {
+  const known = new Set(tags.map(keyName));
+  return (Array.isArray(filters) ? filters : []).filter((tag, index, all) => {
+    const key = keyName(tag);
+    return known.has(key) && all.findIndex(value => keyName(value) === key) === index;
+  });
+}
+
+function toggleTagFilter(filters, tag) {
+  const key = keyName(tag);
+  const index = filters.findIndex(value => keyName(value) === key);
+  if (index >= 0) filters.splice(index, 1);
+  else filters.push(tag);
+}
+
+function mealHasAllTags(meal, filters) {
+  if (!filters.length) return true;
+  const tags = new Set(normaliseMealTags(meal.tags).map(keyName));
+  return filters.every(filter => tags.has(keyName(filter)));
+}
+
 function renderMealFilters() {
   const tags = knownMealTags();
-  if (mealTagFilter !== "all" && !tags.some(tag => keyName(tag) === keyName(mealTagFilter))) mealTagFilter = "all";
+  mealTagFilters = cleanActiveTagFilters(mealTagFilters, tags);
   const options = ["all", ...tags];
   $("#meal-tag-filters").innerHTML = options.map(tag => {
     const label = tag === "all" ? "All" : tag;
-    const active = tag === "all" ? mealTagFilter === "all" : keyName(mealTagFilter) === keyName(tag);
-    return `<button class="meal-filter-chip ${active ? "active" : ""}" type="button" data-meal-tag-filter="${escapeHtml(tag)}">${escapeHtml(label)}</button>`;
+    const active = tag === "all" ? mealTagFilters.length === 0 : mealTagFilters.some(value => keyName(value) === keyName(tag));
+    return `<button class="meal-filter-chip ${active ? "active" : ""}" type="button" data-meal-tag-filter="${escapeHtml(tag)}" aria-pressed="${active}">${escapeHtml(label)}</button>`;
   }).join("");
   $("#meal-rating-filter").value = mealRatingFilter;
 }
@@ -878,7 +899,7 @@ function renderMeals() {
       if (meal.deletedAt) return false;
       const tags = normaliseMealTags(meal.tags);
       const matchesQuery = !query || keyName(meal.name).includes(query) || tags.some(tag => keyName(tag).includes(query));
-      const matchesTag = mealTagFilter === "all" || tags.some(tag => keyName(tag) === keyName(mealTagFilter));
+      const matchesTag = mealHasAllTags(meal, mealTagFilters);
       return matchesQuery && matchesTag && mealMatchesRating(meal);
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -896,12 +917,12 @@ function renderMeals() {
 
 function renderPickerFilters() {
   const tags = knownMealTags();
-  if (pickerTagFilter !== "all" && !tags.some(tag => keyName(tag) === keyName(pickerTagFilter))) pickerTagFilter = "all";
+  pickerTagFilters = cleanActiveTagFilters(pickerTagFilters, tags);
   const options = ["all", ...tags];
   $("#picker-tag-filters").innerHTML = options.map(tag => {
     const label = tag === "all" ? "All" : tag;
-    const active = tag === "all" ? pickerTagFilter === "all" : keyName(pickerTagFilter) === keyName(tag);
-    return `<button class="meal-filter-chip ${active ? "active" : ""}" type="button" data-picker-tag-filter="${escapeHtml(tag)}">${escapeHtml(label)}</button>`;
+    const active = tag === "all" ? pickerTagFilters.length === 0 : pickerTagFilters.some(value => keyName(value) === keyName(tag));
+    return `<button class="meal-filter-chip ${active ? "active" : ""}" type="button" data-picker-tag-filter="${escapeHtml(tag)}" aria-pressed="${active}">${escapeHtml(label)}</button>`;
   }).join("");
   $("#picker-rating-filter").value = pickerRatingFilter;
 }
@@ -913,13 +934,13 @@ function renderPicker() {
     if (meal.deletedAt) return false;
     const tags = normaliseMealTags(meal.tags);
     const matchesQuery = !query || keyName(meal.name).includes(query) || tags.some(tag => keyName(tag).includes(query));
-    const matchesTag = pickerTagFilter === "all" || tags.some(tag => keyName(tag) === keyName(pickerTagFilter));
+    const matchesTag = mealHasAllTags(meal, pickerTagFilters);
     return matchesQuery && matchesTag && mealMatchesRatingValue(meal, pickerRatingFilter);
   };
   const recent = data.meals.filter(meal => meal.lastUsedAt && matches(meal)).sort((a, b) => String(b.lastUsedAt).localeCompare(String(a.lastUsedAt))).slice(0, 4);
   const recentIds = new Set(recent.map(meal => meal.id));
   const all = data.meals.filter(matches).sort((a, b) => a.name.localeCompare(b.name));
-  const filtersActive = !!query || pickerTagFilter !== "all" || pickerRatingFilter !== "any";
+  const filtersActive = !!query || pickerTagFilters.length > 0 || pickerRatingFilter !== "any";
   let html = "";
   if (!filtersActive && recent.length) {
     html += `<div class="picker-section-title">Recent</div>`;
@@ -982,7 +1003,7 @@ function openMealPicker(dayIndex, slotType = "dinner", assignmentId = null, mode
   }
   $("#no-dinner").hidden = pickerMode === "alternative" || pickerSlotType === "lunch" || assignments.length > 1 || assignmentIndex > 0;
   $("#picker-search").value = "";
-  pickerTagFilter = "all";
+  pickerTagFilters = [];
   pickerRatingFilter = "any";
   renderPicker();
   openOverlay("meal-picker-overlay");
@@ -1137,7 +1158,11 @@ function renderMealTagEditor() {
   const allTags = [...tags, ...extras];
   $("#meal-tag-editor").innerHTML = allTags.map(tag => {
     const selected = editingMealTags.some(value => keyName(value) === keyName(tag));
-    return `<button class="meal-editor-tag ${selected ? "selected" : ""}" type="button" data-edit-meal-tag="${escapeHtml(tag)}" aria-pressed="${selected}">${escapeHtml(tag)}</button>`;
+    const isDefault = DEFAULT_MEAL_TAGS.some(value => keyName(value) === keyName(tag));
+    if (isDefault) {
+      return `<button class="meal-editor-tag ${selected ? "selected" : ""}" type="button" data-edit-meal-tag="${escapeHtml(tag)}" aria-pressed="${selected}">${escapeHtml(tag)}</button>`;
+    }
+    return `<span class="meal-editor-tag-group ${selected ? "selected" : ""}"><button class="meal-editor-tag custom ${selected ? "selected" : ""}" type="button" data-edit-meal-tag="${escapeHtml(tag)}" aria-pressed="${selected}">${escapeHtml(tag)}</button><button class="meal-editor-tag-delete" type="button" data-delete-meal-tag="${escapeHtml(tag)}" aria-label="Delete tag ${escapeHtml(tag)}">×</button></span>`;
   }).join("");
 }
 
@@ -1156,6 +1181,26 @@ function toggleEditingMealTag(tag) {
   else editingMealTags.push(DEFAULT_MEAL_TAGS.find(existing => keyName(existing) === keyName(value)) || value);
   editingMealTags = normaliseMealTags(editingMealTags);
   renderMealTagEditor();
+}
+
+function deleteCustomMealTag(tag) {
+  const value = normaliseName(tag);
+  if (!value || DEFAULT_MEAL_TAGS.some(existing => keyName(existing) === keyName(value))) return;
+  const affected = data.meals.filter(meal => !meal.deletedAt && normaliseMealTags(meal.tags).some(existing => keyName(existing) === keyName(value)));
+  if (affected.length && !window.confirm(`Delete the tag “${value}” from ${affected.length} meal${affected.length === 1 ? "" : "s"}?`)) return;
+  const now = new Date().toISOString();
+  affected.forEach(meal => {
+    meal.tags = normaliseMealTags(meal.tags).filter(existing => keyName(existing) !== keyName(value));
+    meal.updatedAt = now;
+    meal.updatedBy = currentMemberId();
+  });
+  editingMealTags = editingMealTags.filter(existing => keyName(existing) !== keyName(value));
+  mealTagFilters = mealTagFilters.filter(existing => keyName(existing) !== keyName(value));
+  pickerTagFilters = pickerTagFilters.filter(existing => keyName(existing) !== keyName(value));
+  if (affected.length) saveData();
+  renderMealTagEditor();
+  renderMeals();
+  if (!$("#meal-picker-overlay").hidden) renderPicker();
 }
 
 function addCustomMealTag() {
@@ -1230,7 +1275,50 @@ function recipeFromHtml(html, sourceUrl) {
       };
     } catch (_) {}
   }
-  return null;
+
+  // Printable WordPress recipe-plugin pages often contain clean visible recipe
+  // markup but no JSON-LD. Read their H1 and Ingredients list directly.
+  const headings = Array.from(doc.querySelectorAll("h1,h2,h3,h4,h5,h6"));
+  const ingredientsHeading = headings.find(node => /^ingredients\s*:?$/i.test(normaliseName(node.textContent)));
+  if (!ingredientsHeading) return null;
+  const endHeading = /^(method|directions|instructions|preparation|nutrition|notes?)\b/i;
+  const ingredients = [];
+  let node = ingredientsHeading.nextElementSibling;
+  while (node) {
+    if (/^H[1-6]$/.test(node.tagName || "")) {
+      const heading = normaliseName(node.textContent);
+      if (endHeading.test(heading)) break;
+    }
+    if (node.matches?.("ul,ol")) {
+      node.querySelectorAll(":scope > li").forEach(li => {
+        const text = normaliseName(li.textContent);
+        if (text) ingredients.push(text);
+      });
+    } else {
+      node.querySelectorAll?.("li").forEach(li => {
+        const text = normaliseName(li.textContent);
+        if (text) ingredients.push(text);
+      });
+    }
+    node = node.nextElementSibling;
+  }
+  if (!ingredients.length) {
+    ingredientsHeading.parentElement?.querySelectorAll("ul li, ol li").forEach(li => {
+      const text = normaliseName(li.textContent);
+      if (text) ingredients.push(text);
+    });
+  }
+  if (!ingredients.length) return null;
+
+  const h1s = Array.from(doc.querySelectorAll("h1")).map(node => normaliseName(node.textContent)).filter(Boolean);
+  const metaTitle = normaliseName(doc.querySelector('meta[property="og:title"]')?.content || doc.title || "").replace(/\s+[|–—-]\s+[^|–—-]+$/, "");
+  const yieldMatch = /\b(?:yield|serves|makes)\s*:\s*([^\n|]{1,30})/i.exec(doc.body?.innerText || "");
+  return {
+    name: h1s[0] || metaTitle || "Imported recipe",
+    ingredients: Array.from(new Set(ingredients)),
+    serves: yieldMatch ? normaliseName(yieldMatch[1]) : "",
+    sourceUrl
+  };
 }
 
 function cleanMarkdownRecipeText(value) {
@@ -1243,13 +1331,20 @@ function cleanMarkdownRecipeText(value) {
 
 function recipeFromMarkdown(markdown, sourceUrl) {
   const lines = String(markdown || "").replace(/\r/g, "").split("\n");
-  const titleLine = lines.find(line => /^#\s+\S/.test(line.trim()));
-  const name = cleanMarkdownRecipeText((titleLine || "").replace(/^#\s+/, "")) || "Imported recipe";
-  const servesLine = lines.find(line => /^\s*(serves|makes)\b/i.test(cleanMarkdownRecipeText(line)));
-  const serves = servesLine ? cleanMarkdownRecipeText(servesLine) : "";
-  const start = lines.findIndex(line => /^#{1,4}\s+ingredients\s*$/i.test(line.trim()));
+  const start = lines.findIndex(line => /^#{1,4}\s+ingredients\s*:?\s*$/i.test(line.trim()));
   if (start < 0) return null;
-
+  let titleLine = "";
+  for (let i = start - 1; i >= 0; i -= 1) {
+    if (/^#\s+\S/.test(lines[i].trim())) { titleLine = lines[i]; break; }
+  }
+  if (!titleLine) {
+    titleLine = lines.find(line => /^title\s*:/i.test(line.trim())) || "";
+    titleLine = titleLine.replace(/^title\s*:\s*/i, "# ");
+  }
+  let name = cleanMarkdownRecipeText((titleLine || "").replace(/^#\s+/, ""));
+  name = name.replace(/\s+[|–—-]\s+[^|–—-]+$/, "").trim() || "Imported recipe";
+  const servesLine = lines.find(line => /^\s*(serves|makes|yield)\b/i.test(cleanMarkdownRecipeText(line)));
+  const serves = servesLine ? cleanMarkdownRecipeText(servesLine) : "";
   const endHeadings = /^(nutrition|method|directions|instructions|preparation|comments|notes|rate this recipe)\b/i;
   const collected = [];
   let current = "";
@@ -3339,11 +3434,30 @@ function bindEvents() {
     const pick = event.target.closest("[data-pick-meal]");
     if (pick) return chooseMealForDay(pick.dataset.pickMeal);
     const mealFilterTag = event.target.closest("[data-meal-tag-filter]");
-    if (mealFilterTag) { mealTagFilter = mealFilterTag.dataset.mealTagFilter; renderMeals(); return; }
+    if (mealFilterTag) {
+      const tag = mealFilterTag.dataset.mealTagFilter;
+      if (tag === "all") mealTagFilters = [];
+      else toggleTagFilter(mealTagFilters, tag);
+      renderMeals();
+      return;
+    }
     const pickerFilterTag = event.target.closest("[data-picker-tag-filter]");
-    if (pickerFilterTag) { pickerTagFilter = pickerFilterTag.dataset.pickerTagFilter; renderPicker(); return; }
+    if (pickerFilterTag) {
+      const tag = pickerFilterTag.dataset.pickerTagFilter;
+      if (tag === "all") pickerTagFilters = [];
+      else toggleTagFilter(pickerTagFilters, tag);
+      renderPicker();
+      return;
+    }
     const mealCardTag = event.target.closest("[data-meal-card-tag]");
-    if (mealCardTag) { mealTagFilter = mealCardTag.dataset.mealCardTag; switchTab("meals"); renderMeals(); return; }
+    if (mealCardTag) {
+      mealTagFilters = [mealCardTag.dataset.mealCardTag];
+      switchTab("meals");
+      renderMeals();
+      return;
+    }
+    const deleteMealTag = event.target.closest("[data-delete-meal-tag]");
+    if (deleteMealTag) return deleteCustomMealTag(deleteMealTag.dataset.deleteMealTag);
     const editMealTag = event.target.closest("[data-edit-meal-tag]");
     if (editMealTag) return toggleEditingMealTag(editMealTag.dataset.editMealTag);
     const editMealRating = event.target.closest("[data-edit-meal-rating]");

@@ -1254,3 +1254,12 @@ body.modal-open { overflow: hidden; }
 .visually-hidden-file { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
 .recipe-photo-selection { margin-top:8px; padding:7px 9px; border-radius:11px; background:var(--gh-surface-2); color:var(--gh-ink); font-size:10.5px; font-weight:750; }
 #recipe-photo-read { margin-top:10px; }
+
+
+/* v1.0.39 — multi-select filters and custom-tag delete controls */
+.meal-editor-tag-group { flex:0 0 auto; display:inline-flex; align-items:stretch; border:1.5px solid var(--gh-line); border-radius:999px; overflow:hidden; background:rgba(247,241,235,.72); }
+.meal-editor-tag-group.selected { background:var(--meal-soft); border-color:color-mix(in srgb, var(--meal) 48%, transparent); }
+.meal-editor-tag-group .meal-editor-tag { border:0; border-radius:0; background:transparent; min-height:27px; }
+.meal-editor-tag-group .meal-editor-tag.selected { background:transparent; border:0; }
+.meal-editor-tag-delete { width:24px; min-height:27px; border:0; border-left:1px solid color-mix(in srgb, var(--gh-line) 75%, transparent); background:transparent; color:var(--gh-muted); font:inherit; font-size:14px; line-height:1; padding:0 5px 1px; }
+.meal-editor-tag-group.selected .meal-editor-tag-delete { color:#985345; }
