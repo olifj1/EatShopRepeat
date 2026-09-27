@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.36";
+const APP_VERSION = "1.0.37";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -1428,7 +1428,7 @@ async function imageFileForOcr(file) {
     image.src = objectUrl;
     if (image.decode) await image.decode();
     else await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = reject; });
-    const maxSide = 2100;
+    const maxSide = 2600;
     const scale = Math.min(1, maxSide / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
@@ -1443,11 +1443,63 @@ async function imageFileForOcr(file) {
   }
 }
 
+function preparedOcrCrop(source, xFrac, yFrac, wFrac, hFrac, upscale = 1.55) {
+  const sx = Math.max(0, Math.round(source.width * xFrac));
+  const sy = Math.max(0, Math.round(source.height * yFrac));
+  const sw = Math.max(1, Math.min(source.width - sx, Math.round(source.width * wFrac)));
+  const sh = Math.max(1, Math.min(source.height - sy, Math.round(source.height * hFrac)));
+  const maxPixels = 4_600_000;
+  let scale = upscale;
+  if (sw * sh * scale * scale > maxPixels) scale = Math.sqrt(maxPixels / (sw * sh));
+  scale = Math.max(1, scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(sw * scale));
+  canvas.height = Math.max(1, Math.round(sh * scale));
+  const context = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(source, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+  // Mild local-independent contrast normalisation works well for photographed
+  // book pages while preserving anti-aliased text for Tesseract.
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const pixels = imageData.data;
+  const histogram = new Uint32Array(256);
+  for (let i = 0; i < pixels.length; i += 4) {
+    const gray = Math.round(0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2]);
+    histogram[gray] += 1;
+  }
+  const total = canvas.width * canvas.height;
+  const lowTarget = total * 0.015;
+  const highTarget = total * 0.985;
+  let low = 0, high = 255, running = 0;
+  for (let i = 0; i < 256; i += 1) { running += histogram[i]; if (running >= lowTarget) { low = i; break; } }
+  running = 0;
+  for (let i = 0; i < 256; i += 1) { running += histogram[i]; if (running >= highTarget) { high = i; break; } }
+  const range = Math.max(36, high - low);
+  for (let i = 0; i < pixels.length; i += 4) {
+    const raw = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
+    let value = ((raw - low) / range) * 255;
+    value = Math.max(0, Math.min(255, (value - 128) * 1.22 + 138));
+    pixels[i] = pixels[i + 1] = pixels[i + 2] = value;
+    pixels[i + 3] = 255;
+  }
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
 function cleanOcrRecipeLine(value) {
-  return normaliseName(String(value || "")
+  let clean = normaliseName(String(value || "")
     .replace(/[•●▪◦·]/g, " ")
     .replace(/^[-–—]+\s*/, "")
     .replace(/\s*[|]\s*/g, " "));
+  // Common photographed-page OCR substitutions at the start of quantities.
+  clean = clean
+    .replace(/^\s*[|Il]\s+(?=[A-Za-z])/i, "1 ")
+    .replace(/^\s*[|Il](?=\d)/i, "1")
+    .replace(/\b[®©]\b/g, "&");
+  return clean.trim();
 }
 
 function ocrLineLooksLikeMetadata(line) {
@@ -1457,18 +1509,133 @@ function ocrLineLooksLikeMetadata(line) {
 function ocrLineLooksLikeIngredient(line) {
   const clean = cleanOcrRecipeLine(line);
   if (!clean || clean.length > 120) return false;
-  if (/^(method|directions|instructions|preparation|step\s+\d+|how to|heat |preheat |cook |stir |mix |place |add the )/i.test(clean)) return false;
+  if (/^(method|directions|instructions|preparation|step\s+\d+|how to|heat |preheat |cook |stir |mix |place |add the |when |meanwhile |for the pickled|assemble )/i.test(clean)) return false;
   const afterLeadingNumber = clean.replace(/^(?:\d+(?:[.,]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])(?:\s*[-–]\s*(?:\d+(?:[.,]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞]))?\s+/, "");
   if (afterLeadingNumber !== clean && /^(heat|preheat|cook|stir|mix|place|add|pour|bake|fry|roast|season|bring|leave|transfer|serve)\b/i.test(afterLeadingNumber)) return false;
-  if (/^(?:\d+(?:[.,]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])(?:\s*[-–]\s*(?:\d+(?:[.,]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞]))?\s*(?:x|×)?\s*(?:\d+(?:[.,]\d+)?)?\s*(?:g|kg|ml|l|tbsp|tsp|cloves?|cans?|tins?|packs?|packets?|jars?|bottles?|bunch(?:es)?|handfuls?|slices?)?\b/i.test(clean)) return true;
+  if (/^(?:\d+(?:[.,]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])(?:\s*[-–]\s*(?:\d+(?:[.,]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞]))?\s*(?:x|×)?\s*(?:\d+(?:[.,]\d+)?)?\s*(?:g|kg|ml|l|cm|tbsp|tsp|cups?|cloves?|cans?|tins?|packs?|packets?|jars?|bottles?|bunch(?:es)?|handfuls?|slices?|lettuces?)?\b/i.test(clean)) return true;
   return /^(?:a|an)\s+(?:small|medium|large)?\s*\w+|^(?:pinch|handful|salt|pepper|oil)\b/i.test(clean);
+}
+
+function dedupeOcrLines(lines) {
+  const seen = new Set();
+  const output = [];
+  lines.forEach(line => {
+    const clean = cleanOcrRecipeLine(line);
+    const key = keyName(clean).replace(/\d+/g, match => match);
+    if (!clean || !key || seen.has(key)) return;
+    seen.add(key);
+    output.push(clean);
+  });
+  return output;
+}
+
+function scoreOcrIngredientText(text) {
+  const lines = String(text || "").split(/\n+/).map(cleanOcrRecipeLine).filter(Boolean);
+  let score = 0;
+  if (lines.some(line => /^ingredients?\b/i.test(line))) score += 45;
+  if (lines.some(line => /^(method|directions|instructions)\b/i.test(line))) score -= 28;
+  lines.forEach(line => {
+    if (ocrLineLooksLikeIngredient(line)) score += 4;
+    if (/^(add|mix|stir|cook|fry|heat|when|meanwhile|place|serve|for the)\b/i.test(line)) score -= 3;
+  });
+  return score;
+}
+
+function ingredientLinesFromOcr(text) {
+  const lines = String(text || "").replace(/\r/g, "").split("\n").map(cleanOcrRecipeLine).filter(Boolean);
+  const ingredientHeading = /^ingredients?\s*:?$/i;
+  const stopHeading = /^(method|directions|instructions|preparation|steps?|how to make|cooking method|to cook)\s*:?$/i;
+  const start = lines.findIndex(line => ingredientHeading.test(line));
+  const source = start >= 0 ? lines.slice(start + 1) : lines;
+  const output = [];
+  for (const line of source) {
+    if (stopHeading.test(line)) break;
+    if (ocrLineLooksLikeMetadata(line)) continue;
+    if (/^for (?:the )?\w+(?:\s+\w+){0,3}:?$/i.test(line) && !/\d/.test(line)) continue;
+    if (ocrLineLooksLikeIngredient(line)) output.push(line.replace(/^\d+[.)]\s+/, ""));
+  }
+  return dedupeOcrLines(output);
+}
+
+function recipeNameFromTitleOcr(text) {
+  const lines = String(text || "").replace(/\r/g, "").split("\n")
+    .map(line => cleanOcrRecipeLine(line).replace(/[®©@]/g, "&").replace(/^[^A-Za-z0-9]+/, ""))
+    .filter(line => line.length >= 4 && line.length <= 90)
+    .filter(line => !ocrLineLooksLikeMetadata(line) && !/^(ingredients?|method)\b/i.test(line));
+  if (!lines.length) return "Imported recipe";
+  let candidate = lines[lines.length - 1]
+    .replace(/^[il1]\s+(?=[A-Z])/i, "")
+    .replace(/\s*[®©]\s*/g, " & ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (/^[A-Z0-9 '&-]{4,}$/.test(candidate)) {
+    candidate = candidate.toLowerCase().replace(/(^|[\s&-])([a-z])/g, (_, lead, letter) => lead + letter.toUpperCase());
+  }
+  return candidate || "Imported recipe";
+}
+
+async function recogniseOcrRegion(worker, canvas, psm = "6") {
+  await worker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: "1" });
+  const result = await worker.recognize(canvas, { rotateAuto: false });
+  return result?.data?.text || "";
+}
+
+async function ocrCookbookPhoto(worker, source, photoNumber, photoCount) {
+  setPhotoImportStatus(`Reading title · photo ${photoNumber} of ${photoCount}…`);
+  const titleCanvas = preparedOcrCrop(source, 0.16, 0.055, 0.82, 0.23, 1.7);
+  const titleText = await recogniseOcrRegion(worker, titleCanvas, "6");
+
+  // Most cookbook spreads use a left/right column arrangement. OCR both sides
+  // independently and choose the side that behaves most like an ingredient list.
+  const sideSpecs = [
+    { name: "left", x: 0.00, width: 0.47 },
+    { name: "right", x: 0.53, width: 0.47 }
+  ];
+  const sliceSpecs = [
+    { y: 0.25, h: 0.29 },
+    { y: 0.47, h: 0.29 },
+    { y: 0.69, h: 0.29 }
+  ];
+  const sideResults = [];
+  for (const side of sideSpecs) {
+    const parts = [];
+    for (let i = 0; i < sliceSpecs.length; i += 1) {
+      setPhotoImportStatus(`Scanning ${side.name} column · photo ${photoNumber} of ${photoCount}…`);
+      const slice = sliceSpecs[i];
+      const crop = preparedOcrCrop(source, side.x, slice.y, side.width, slice.h, 1.65);
+      const text = await recogniseOcrRegion(worker, crop, "6");
+      if (text) parts.push(text);
+    }
+    const text = parts.join("\n");
+    sideResults.push({ ...side, text, score: scoreOcrIngredientText(text), ingredients: ingredientLinesFromOcr(text) });
+  }
+  sideResults.sort((a, b) => (b.score + b.ingredients.length * 2) - (a.score + a.ingredients.length * 2));
+  const best = sideResults[0];
+
+  // If neither side yields a useful list, fall back to the older whole-page
+  // reading rather than failing immediately (useful for single-column recipes).
+  if (!best || best.ingredients.length < 2) {
+    setPhotoImportStatus(`Trying full page · photo ${photoNumber} of ${photoCount}…`);
+    const full = preparedOcrCrop(source, 0, 0.04, 1, 0.92, 1.25);
+    const fullText = await recogniseOcrRegion(worker, full, "3");
+    const recipe = recipeFromOcrText(fullText);
+    return recipe ? { name: recipe.name, serves: recipe.serves, ingredients: recipe.ingredients } : null;
+  }
+
+  const metaText = titleText;
+  const servesMatch = /\b(serves?|makes?)\s*[:|-]?\s*\d+\b/i.exec(metaText);
+  return {
+    name: recipeNameFromTitleOcr(titleText),
+    serves: servesMatch ? servesMatch[0] : "",
+    ingredients: best.ingredients
+  };
 }
 
 function recipeFromOcrText(rawText) {
   const lines = String(rawText || "").replace(/\r/g, "").split("\n").map(cleanOcrRecipeLine).filter(Boolean);
   if (!lines.length) return null;
-  const ingredientHeading = /^(ingredients?|you(?:'|’)ll need|you will need|what you need|shopping list)\s*:?[\s]*$/i;
-  const stopHeading = /^(method|directions|instructions|preparation|steps?|how to make|cooking method|to cook)\s*:?[\s]*$/i;
+  const ingredientHeading = /^(ingredients?|you(?:'|’)ll need|you will need|what you need|shopping list)\s*:?\s*$/i;
+  const stopHeading = /^(method|directions|instructions|preparation|steps?|how to make|cooking method|to cook)\s*:?\s*$/i;
   let start = lines.findIndex(line => ingredientHeading.test(line));
   let ingredientLines = [];
 
@@ -1478,16 +1645,16 @@ function recipeFromOcrText(rawText) {
       if (stopHeading.test(line)) break;
       if (/^for (?:the )?\w+(?:\s+\w+){0,3}:?$/i.test(line) && !/\d/.test(line)) continue;
       if (ocrLineLooksLikeMetadata(line)) continue;
-      ingredientLines.push(line);
+      if (ocrLineLooksLikeIngredient(line)) ingredientLines.push(line);
     }
   } else {
     ingredientLines = lines.filter(ocrLineLooksLikeIngredient);
     start = ingredientLines.length ? lines.indexOf(ingredientLines[0]) : -1;
   }
 
-  ingredientLines = ingredientLines
+  ingredientLines = dedupeOcrLines(ingredientLines
     .map(line => line.replace(/^\d+[.)]\s+/, ""))
-    .filter(line => line.length > 1 && !stopHeading.test(line));
+    .filter(line => line.length > 1 && !stopHeading.test(line)));
 
   if (ingredientLines.length < 2) return null;
 
@@ -1519,22 +1686,24 @@ async function importRecipeFromPhotos() {
       }
     });
 
-    const textParts = [];
+    const recipes = [];
     for (let index = 0; index < photoImportFiles.length; index += 1) {
       currentPhoto = index;
       setPhotoImportStatus(`Preparing photo ${index + 1} of ${photoImportFiles.length}…`);
       const image = await imageFileForOcr(photoImportFiles[index]);
-      const result = await worker.recognize(image, { rotateAuto: true });
-      if (result?.data?.text) textParts.push(result.data.text);
+      const recipe = await ocrCookbookPhoto(worker, image, index + 1, photoImportFiles.length);
+      if (recipe) recipes.push(recipe);
     }
 
-    const recipe = recipeFromOcrText(textParts.join("\n"));
-    if (!recipe) throw new Error("I could read text from the photos, but couldn't isolate a clear ingredient list. Try a closer photo showing the title and Ingredients section.");
-    const ingredients = recipe.ingredients.map(parseRecipeIngredient).filter(item => item.name);
+    if (!recipes.length) throw new Error("I could read text from the photos, but couldn't isolate a clear ingredient list. Try a straighter photo with the Ingredients section clearly visible.");
+    const name = recipes.map(recipe => recipe.name).find(value => value && value !== "Imported recipe") || "Imported recipe";
+    const serves = recipes.map(recipe => recipe.serves).find(Boolean) || "";
+    const rawIngredients = dedupeOcrLines(recipes.flatMap(recipe => recipe.ingredients || []));
+    const ingredients = rawIngredients.map(parseRecipeIngredient).filter(item => item.name);
     if (!ingredients.length) throw new Error("No usable shopping ingredients were found in those photos.");
     closeOverlay("recipe-import-overlay");
-    openMealEditor(null, { name: recipe.name, ingredients });
-    showToast(`Read ${ingredients.length} shopping item${ingredients.length === 1 ? "" : "s"} from ${photoImportFiles.length} photo${photoImportFiles.length === 1 ? "" : "s"}${recipe.serves ? ` · ${recipe.serves}` : ""}`);
+    openMealEditor(null, { name, ingredients });
+    showToast(`Read ${ingredients.length} shopping item${ingredients.length === 1 ? "" : "s"} from ${photoImportFiles.length} photo${photoImportFiles.length === 1 ? "" : "s"}${serves ? ` · ${serves}` : ""}`);
   } catch (error) {
     setPhotoImportStatus(error?.message || "Those photos could not be read.", true);
   } finally {

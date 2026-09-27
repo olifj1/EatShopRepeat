@@ -1,3 +1,3 @@
-# MealPlanner v1.0.36
+# MealPlanner v1.0.37
 
-Adds the first cookbook photo-import prototype alongside the existing website recipe importer. Users can take or choose up to four recipe photos; text recognition runs locally in the browser with Tesseract.js, then the existing deterministic ingredient parser opens the normal Edit Meal screen for review. The OCR library is loaded only when photo import is used. Existing Firebase sync/data structures are unchanged.
+Improves cookbook photo import for multi-column recipe-book pages. Photo OCR now reads the title separately, scans left/right columns independently in overlapping sections, selects the ingredient-like column, applies contrast preprocessing, removes common OCR quantity errors and falls back to whole-page recognition for single-column layouts. Firebase sync/data structures are unchanged.
