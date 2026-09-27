@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png?v=icon2">
-  <link rel="stylesheet" href="./style.css?v=1.0.29">
+  <link rel="stylesheet" href="./style.css?v=1.0.30">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -60,23 +60,25 @@
           <button class="round-action" id="add-meal" type="button" aria-label="Add meal">＋</button>
         </div>
 
-        <label class="search-field">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
-          <input id="meal-search" type="search" placeholder="Search meals" autocomplete="off">
-        </label>
+        <div class="meal-search-row">
+          <label class="search-field meal-search-field">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+            <input id="meal-search" type="search" placeholder="Search meals" autocomplete="off">
+          </label>
+          <label class="compact-star-filter" title="Filter by rating">
+            <span class="sr-only">Filter by rating</span>
+            <select id="meal-rating-filter" aria-label="Filter meals by rating">
+              <option value="any">☆</option>
+              <option value="3">★★★</option>
+              <option value="4">★★★★</option>
+              <option value="5">★★★★★</option>
+              <option value="unrated">☆☆☆☆☆</option>
+            </select>
+          </label>
+        </div>
 
         <div class="meal-filter-panel">
           <div class="meal-tag-filters" id="meal-tag-filters" aria-label="Filter meals by tag"></div>
-          <label class="meal-rating-filter">
-            <span>Rating</span>
-            <select id="meal-rating-filter" aria-label="Filter meals by rating">
-              <option value="any">Any rating</option>
-              <option value="3">3★+</option>
-              <option value="4">4★+</option>
-              <option value="5">5★</option>
-              <option value="unrated">Unrated</option>
-            </select>
-          </label>
         </div>
 
         <div class="meal-list" id="meal-list"></div>
@@ -147,10 +149,23 @@
         </div>
         <button class="sheet-close" type="button" data-close="meal-picker-overlay" aria-label="Close">×</button>
       </div>
-      <label class="search-field compact">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
-        <input id="picker-search" type="search" placeholder="Find a meal" autocomplete="off">
-      </label>
+      <div class="picker-search-row">
+        <label class="search-field compact picker-search-field">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+          <input id="picker-search" type="search" placeholder="Find a meal" autocomplete="off">
+        </label>
+        <label class="compact-star-filter" title="Filter by rating">
+          <span class="sr-only">Filter by rating</span>
+          <select id="picker-rating-filter" aria-label="Filter meal choices by rating">
+            <option value="any">☆</option>
+            <option value="3">★★★</option>
+            <option value="4">★★★★</option>
+            <option value="5">★★★★★</option>
+            <option value="unrated">☆☆☆☆☆</option>
+          </select>
+        </label>
+      </div>
+      <div class="picker-tag-filters" id="picker-tag-filters" aria-label="Filter meal choices by tag"></div>
       <div class="picker-list" id="picker-list"></div>
       <div class="picker-clear-actions">
         <button class="secondary-button picker-clear-button" id="clear-day" type="button">Clear dinner</button>
@@ -195,7 +210,6 @@
           <section class="meal-editor-section" aria-labelledby="meal-tags-label">
             <div class="meal-editor-section-heading">
               <strong id="meal-tags-label">Tags</strong>
-              <small>Use more than one if it fits.</small>
             </div>
             <div class="meal-tag-editor" id="meal-tag-editor"></div>
             <div class="meal-tag-add-row">
@@ -205,12 +219,8 @@
           </section>
 
           <section class="meal-editor-section rating-section" aria-labelledby="meal-rating-label">
-            <div class="meal-editor-section-heading">
-              <strong id="meal-rating-label">Rating</strong>
-              <small>Overall household favourite.</small>
-            </div>
+            <strong id="meal-rating-label">Rating</strong>
             <div class="meal-rating-editor" id="meal-rating-editor" role="group" aria-label="Meal rating"></div>
-            <button class="meal-rating-clear" id="meal-rating-clear" type="button">Not rated</button>
           </section>
         </div>
 
@@ -603,7 +613,7 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.29"></script>
-  <script type="module" src="./firebase-sync.js?v=1.0.29"></script>
+  <script src="./app.js?v=1.0.30"></script>
+  <script type="module" src="./firebase-sync.js?v=1.0.30"></script>
 </body>
 </html>

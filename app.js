@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.29";
+const APP_VERSION = "1.0.30";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -574,6 +574,8 @@ let toastTimer = null;
 let deferredInstallPrompt = null;
 let mealTagFilter = "all";
 let mealRatingFilter = "any";
+let pickerTagFilter = "all";
+let pickerRatingFilter = "any";
 let editingMealTags = [];
 let editingMealRating = 0;
 
@@ -854,11 +856,15 @@ function renderMealFilters() {
   $("#meal-rating-filter").value = mealRatingFilter;
 }
 
-function mealMatchesRating(meal) {
+function mealMatchesRatingValue(meal, filterValue) {
   const rating = normaliseMealRating(meal.rating);
-  if (mealRatingFilter === "unrated") return rating === 0;
-  if (["3", "4", "5"].includes(mealRatingFilter)) return rating >= Number(mealRatingFilter);
+  if (filterValue === "unrated") return rating === 0;
+  if (["3", "4", "5"].includes(filterValue)) return rating >= Number(filterValue);
   return true;
+}
+
+function mealMatchesRating(meal) {
+  return mealMatchesRatingValue(meal, mealRatingFilter);
 }
 
 function renderMeals() {
@@ -885,27 +891,52 @@ function renderMeals() {
   }).join("") : `<div class="empty-state"><strong>No meals found</strong><p>Try another search, category or rating filter.</p></div>`;
 }
 
+function renderPickerFilters() {
+  const tags = knownMealTags();
+  if (pickerTagFilter !== "all" && !tags.some(tag => keyName(tag) === keyName(pickerTagFilter))) pickerTagFilter = "all";
+  const options = ["all", ...tags];
+  $("#picker-tag-filters").innerHTML = options.map(tag => {
+    const label = tag === "all" ? "All" : tag;
+    const active = tag === "all" ? pickerTagFilter === "all" : keyName(pickerTagFilter) === keyName(tag);
+    return `<button class="meal-filter-chip ${active ? "active" : ""}" type="button" data-picker-tag-filter="${escapeHtml(tag)}">${escapeHtml(label)}</button>`;
+  }).join("");
+  $("#picker-rating-filter").value = pickerRatingFilter;
+}
+
 function renderPicker() {
+  renderPickerFilters();
   const query = keyName($("#picker-search").value);
-  const recent = data.meals.filter(meal => !meal.deletedAt && meal.lastUsedAt).sort((a, b) => String(b.lastUsedAt).localeCompare(String(a.lastUsedAt))).slice(0, 4);
+  const matches = meal => {
+    if (meal.deletedAt) return false;
+    const tags = normaliseMealTags(meal.tags);
+    const matchesQuery = !query || keyName(meal.name).includes(query) || tags.some(tag => keyName(tag).includes(query));
+    const matchesTag = pickerTagFilter === "all" || tags.some(tag => keyName(tag) === keyName(pickerTagFilter));
+    return matchesQuery && matchesTag && mealMatchesRatingValue(meal, pickerRatingFilter);
+  };
+  const recent = data.meals.filter(meal => meal.lastUsedAt && matches(meal)).sort((a, b) => String(b.lastUsedAt).localeCompare(String(a.lastUsedAt))).slice(0, 4);
   const recentIds = new Set(recent.map(meal => meal.id));
-  const all = data.meals.filter(meal => !meal.deletedAt).sort((a, b) => a.name.localeCompare(b.name));
-  const matches = meal => !query || keyName(meal.name).includes(query);
+  const all = data.meals.filter(matches).sort((a, b) => a.name.localeCompare(b.name));
+  const filtersActive = !!query || pickerTagFilter !== "all" || pickerRatingFilter !== "any";
   let html = "";
-  if (!query && recent.length) {
+  if (!filtersActive && recent.length) {
     html += `<div class="picker-section-title">Recent</div>`;
     html += recent.map(meal => pickerRow(meal)).join("");
     html += `<div class="picker-section-title">All meals</div>`;
     html += all.filter(meal => !recentIds.has(meal.id)).map(meal => pickerRow(meal)).join("");
   } else {
-    const filtered = all.filter(matches);
-    html = filtered.length ? filtered.map(meal => pickerRow(meal)).join("") : `<div class="empty-state"><strong>No meals found</strong><p>Add it from the Meals tab first.</p></div>`;
+    html = all.length ? all.map(meal => pickerRow(meal)).join("") : `<div class="empty-state"><strong>No meals found</strong><p>Try another search, tag or rating.</p></div>`;
   }
   $("#picker-list").innerHTML = html;
 }
 
 function pickerRow(meal) {
-  return `<button class="picker-row" type="button" data-pick-meal="${meal.id}"><strong>${escapeHtml(meal.name)}</strong><span>${meal.ingredients.length} item${meal.ingredients.length === 1 ? "" : "s"}</span></button>`;
+  const tags = normaliseMealTags(meal.tags);
+  const rating = mealRatingText(meal.rating);
+  const metaBits = [];
+  if (rating) metaBits.push(`<span class="picker-row-rating">${rating}</span>`);
+  if (tags.length) metaBits.push(`<span class="picker-row-tags">${tags.map(tag => escapeHtml(tag)).join(" · ")}</span>`);
+  const meta = metaBits.length ? `<span class="picker-row-meta">${metaBits.join("")}</span>` : `<span>${meal.ingredients.length} item${meal.ingredients.length === 1 ? "" : "s"}</span>`;
+  return `<button class="picker-row" type="button" data-pick-meal="${meal.id}"><strong>${escapeHtml(meal.name)}</strong>${meta}</button>`;
 }
 
 function normalisedAudienceIds(memberIds) {
@@ -951,6 +982,8 @@ function openMealPicker(dayIndex, slotType = "dinner", assignmentId = null, mode
   }
   $("#no-dinner").hidden = pickerMode === "alternative" || pickerSlotType === "lunch" || assignments.length > 1 || assignmentIndex > 0;
   $("#picker-search").value = "";
+  pickerTagFilter = "all";
+  pickerRatingFilter = "any";
   renderPicker();
   openOverlay("meal-picker-overlay");
 }
@@ -1111,9 +1144,8 @@ function renderMealTagEditor() {
 function renderMealRatingEditor() {
   $("#meal-rating-editor").innerHTML = Array.from({ length: 5 }, (_, index) => {
     const value = index + 1;
-    return `<button class="meal-rating-star ${value <= editingMealRating ? "active" : ""}" type="button" data-edit-meal-rating="${value}" aria-label="${value} star${value === 1 ? "" : "s"}" aria-pressed="${editingMealRating === value}">★</button>`;
+    return `<button class="meal-rating-star ${value <= editingMealRating ? "active" : ""}" type="button" data-edit-meal-rating="${value}" aria-label="${value} star${value === 1 ? "" : "s"}${editingMealRating === value ? "; tap again to clear" : ""}" aria-pressed="${editingMealRating === value}">★</button>`;
   }).join("");
-  $("#meal-rating-clear").textContent = editingMealRating ? "Clear rating" : "Not rated";
 }
 
 function toggleEditingMealTag(tag) {
@@ -2725,12 +2757,19 @@ function bindEvents() {
     if (pick) return chooseMealForDay(pick.dataset.pickMeal);
     const mealFilterTag = event.target.closest("[data-meal-tag-filter]");
     if (mealFilterTag) { mealTagFilter = mealFilterTag.dataset.mealTagFilter; renderMeals(); return; }
+    const pickerFilterTag = event.target.closest("[data-picker-tag-filter]");
+    if (pickerFilterTag) { pickerTagFilter = pickerFilterTag.dataset.pickerTagFilter; renderPicker(); return; }
     const mealCardTag = event.target.closest("[data-meal-card-tag]");
     if (mealCardTag) { mealTagFilter = mealCardTag.dataset.mealCardTag; switchTab("meals"); renderMeals(); return; }
     const editMealTag = event.target.closest("[data-edit-meal-tag]");
     if (editMealTag) return toggleEditingMealTag(editMealTag.dataset.editMealTag);
     const editMealRating = event.target.closest("[data-edit-meal-rating]");
-    if (editMealRating) { editingMealRating = Number(editMealRating.dataset.editMealRating); renderMealRatingEditor(); return; }
+    if (editMealRating) {
+      const value = Number(editMealRating.dataset.editMealRating);
+      editingMealRating = editingMealRating === value ? 0 : value;
+      renderMealRatingEditor();
+      return;
+    }
     const edit = event.target.closest("[data-edit-meal]");
     if (edit) return openMealEditor(edit.dataset.editMeal);
     const editMember = event.target.closest("[data-edit-member]");
@@ -2787,9 +2826,9 @@ function bindEvents() {
   $("#picker-search").addEventListener("input", renderPicker);
   $("#meal-search").addEventListener("input", renderMeals);
   $("#meal-rating-filter").addEventListener("change", event => { mealRatingFilter = event.target.value; renderMeals(); });
+  $("#picker-rating-filter").addEventListener("change", event => { pickerRatingFilter = event.target.value; renderPicker(); });
   $("#meal-tag-add").addEventListener("click", addCustomMealTag);
   $("#meal-tag-input").addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); addCustomMealTag(); } });
-  $("#meal-rating-clear").addEventListener("click", () => { editingMealRating = 0; renderMealRatingEditor(); });
   $("#add-meal").addEventListener("click", () => openMealEditor());
   $("#add-ingredient").addEventListener("click", () => addIngredientRow({}));
   $("#ingredient-list").addEventListener("click", event => { const remove = event.target.closest(".remove-ingredient"); if (remove) remove.closest("[data-ingredient-row]").remove(); });
@@ -2892,7 +2931,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.29", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.30", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {

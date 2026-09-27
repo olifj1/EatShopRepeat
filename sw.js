@@ -1,10 +1,10 @@
-const CACHE = "mealplanner-v1.0.29";
+const CACHE = "mealplanner-v1.0.30";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./style.css?v=1.0.29",
-  "./app.js?v=1.0.29",
-  "./firebase-sync.js?v=1.0.29",
+  "./style.css?v=1.0.30",
+  "./app.js?v=1.0.30",
+  "./firebase-sync.js?v=1.0.30",
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png"
