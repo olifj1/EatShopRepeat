@@ -1182,3 +1182,13 @@ body.modal-open { overflow: hidden; }
   flex: 0 0 auto;
   max-width: none;
 }
+
+
+/* v1.0.33 — keep meal picker result rows a consistent natural height */
+#meal-picker-overlay .picker-list {
+  align-content: start;
+  grid-auto-rows: max-content;
+}
+#meal-picker-overlay .picker-row {
+  align-self: start;
+}

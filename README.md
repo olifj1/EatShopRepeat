@@ -1,3 +1,3 @@
-# MealPlanner v1.0.32
+# MealPlanner v1.0.33
 
-UI containment fix. Keeps edit-meal sheets fixed to the viewport while allowing only tag rows to scroll horizontally, and prevents the Choose Meal tag filter row from shrinking/clipping inside the stable picker sheet. No meal-data or Firebase sync changes.
+Meal picker layout polish: filtered result rows now keep their normal compact height instead of stretching to fill the sheet when only a few meals match. Empty space remains below the results. No meal data or Firebase sync logic changes.
