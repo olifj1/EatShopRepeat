@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.34";
+const APP_VERSION = "1.0.35";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -578,6 +578,7 @@ let pickerTagFilter = "all";
 let pickerRatingFilter = "any";
 let editingMealTags = [];
 let editingMealRating = 0;
+let editingMealSourceUrl = "";
 
 function currentMemberId() {
   return data?.settings?.currentMemberId || null;
@@ -1165,18 +1166,263 @@ function addCustomMealTag() {
   renderMealTagEditor();
 }
 
-function openMealEditor(mealId = null) {
+
+function normaliseRecipeUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    if (!/^https?:$/.test(url.protocol)) return null;
+    return url;
+  } catch (_) {
+    return null;
+  }
+}
+
+function recipeSourceHost(value) {
+  const url = normaliseRecipeUrl(value);
+  return url ? url.hostname.replace(/^www\./, "") : "";
+}
+
+function renderMealSourceRow() {
+  const row = $("#meal-source-row");
+  const url = normaliseRecipeUrl(editingMealSourceUrl);
+  row.hidden = !url;
+  if (!url) return;
+  $("#meal-source-host").textContent = recipeSourceHost(url.href);
+  $("#meal-source-link").href = url.href;
+}
+
+function recipeNodeFromJson(value) {
+  if (!value) return null;
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const found = recipeNodeFromJson(entry);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof value !== "object") return null;
+  const rawType = value["@type"];
+  const types = Array.isArray(rawType) ? rawType : [rawType];
+  if (types.some(type => String(type || "").toLowerCase() === "recipe") && Array.isArray(value.recipeIngredient)) return value;
+  for (const child of Object.values(value)) {
+    const found = recipeNodeFromJson(child);
+    if (found) return found;
+  }
+  return null;
+}
+
+function recipeFromHtml(html, sourceUrl) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  for (const script of doc.querySelectorAll('script[type="application/ld+json"]')) {
+    try {
+      const node = recipeNodeFromJson(JSON.parse(script.textContent || "null"));
+      if (!node) continue;
+      const ingredients = (node.recipeIngredient || []).map(value => normaliseName(String(value || ""))).filter(Boolean);
+      if (!ingredients.length) continue;
+      const yieldValue = Array.isArray(node.recipeYield) ? node.recipeYield[0] : node.recipeYield;
+      return {
+        name: normaliseName(node.name || doc.querySelector("h1")?.textContent || "Imported recipe"),
+        ingredients,
+        serves: normaliseName(yieldValue || ""),
+        sourceUrl
+      };
+    } catch (_) {}
+  }
+  return null;
+}
+
+function cleanMarkdownRecipeText(value) {
+  return normaliseName(String(value || "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`]/g, "")
+    .replace(/&nbsp;/gi, " "));
+}
+
+function recipeFromMarkdown(markdown, sourceUrl) {
+  const lines = String(markdown || "").replace(/\r/g, "").split("\n");
+  const titleLine = lines.find(line => /^#\s+\S/.test(line.trim()));
+  const name = cleanMarkdownRecipeText((titleLine || "").replace(/^#\s+/, "")) || "Imported recipe";
+  const servesLine = lines.find(line => /^\s*(serves|makes)\b/i.test(cleanMarkdownRecipeText(line)));
+  const serves = servesLine ? cleanMarkdownRecipeText(servesLine) : "";
+  const start = lines.findIndex(line => /^#{1,4}\s+ingredients\s*$/i.test(line.trim()));
+  if (start < 0) return null;
+
+  const endHeadings = /^(nutrition|method|directions|instructions|preparation|comments|notes|rate this recipe)\b/i;
+  const collected = [];
+  let current = "";
+  const flush = () => { if (current) collected.push(cleanMarkdownRecipeText(current)); current = ""; };
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const raw = lines[i].trim();
+    if (/^#{1,4}\s+/.test(raw)) {
+      const heading = cleanMarkdownRecipeText(raw.replace(/^#{1,4}\s+/, ""));
+      if (endHeadings.test(heading)) break;
+      if (heading) { flush(); }
+      continue;
+    }
+    if (!raw) continue;
+    const text = cleanMarkdownRecipeText(raw.replace(/^[-*+]\s+/, ""));
+    if (!text || /^(units:?|metric\s*us|us conversions|loading\.{0,3}|ad)$/i.test(text) || /^not all measurements/i.test(text)) continue;
+    if (/^[-*+]\s+/.test(raw)) {
+      flush();
+      current = text;
+    } else if (current && text.length < 100 && !/^(keep the screen|print|save recipe)/i.test(text)) {
+      current += ` ${text}`;
+    }
+  }
+  flush();
+  const ingredients = collected.filter(line => line && !/^nutrition\b/i.test(line));
+  return ingredients.length ? { name, ingredients, serves, sourceUrl } : null;
+}
+
+function stripIngredientPreparation(value) {
+  return normaliseName(String(value || "")
+    .replace(/,.*$/, "")
+    .replace(/\b(finely|roughly|thinly)\s+(chopped|sliced|diced)\b.*$/i, "")
+    .replace(/\b(chopped|crushed|grated|diced|peeled|sliced)\b\s*$/i, ""));
+}
+
+function guessIngredientCategory(name) {
+  const clean = keyName(name);
+  const exact = findItemByName(name);
+  if (exact) return exact.category;
+  const known = data.items.filter(item => !item.deletedAt && keyName(item.name).length >= 4)
+    .sort((a, b) => keyName(b.name).length - keyName(a.name).length)
+    .find(item => clean.includes(keyName(item.name)) || keyName(item.name).includes(clean));
+  if (known) return known.category;
+  const has = words => words.some(word => clean.includes(word));
+  if (has(["onion","garlic","tomato","pepper","chilli","potato","carrot","ginger","parsley","coriander","basil","spinach","mushroom","courgette","broccoli","avocado","lemon","lime","apple","banana","pea","sweetcorn","salad","lettuce"])) return "Fruit & veg";
+  if (has(["chicken","beef","pork","lamb","turkey","bacon","sausage","salmon","tuna","cod","haddock","prawn","fish","mince"])) return "Meat & fish";
+  if (has(["cheddar","mozzarella","mascarpone","cheese","milk","cream","butter","yoghurt","yogurt","egg","parmesan","feta"])) return "Chilled & dairy";
+  if (has(["bread","roll","bun","wrap","tortilla","bagel","pitta","croissant"])) return "Bakery";
+  if (has(["frozen","ice cream"])) return "Frozen";
+  if (has(["juice","cola","lemonade","water","coffee","tea"])) return "Drinks";
+  if (has(["pasta","penne","spaghetti","rice","oil","sugar","flour","stock","beans","lentil","chickpea","spice","paprika","cumin","oregano","thyme","salt","pepper","flakes","tomato puree","tomato purée"])) return "Cupboard";
+  return "Other";
+}
+
+function parseRecipeIngredient(raw) {
+  let line = cleanMarkdownRecipeText(raw).replace(/^[-*+]\s+/, "");
+  line = line.replace(/\s+/g, " ").trim();
+  const fraction = "(?:\\d+(?:[.,]\\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])";
+  let qty = "";
+  let unit = "";
+  let name = line;
+
+  const composite = new RegExp(`^(${fraction})\\s*[x×]\\s*(${fraction})\\s*(g|kg|ml|l)\\s*(cans?|tins?|packs?|jars?|bottles?|tubs?)?\\s+(.+)$`, "i").exec(line);
+  if (composite) {
+    qty = `${composite[1]} × ${composite[2]}`;
+    unit = `${composite[3]}${composite[4] ? ` ${composite[4]}` : ""}`;
+    name = composite[5];
+  } else {
+    const amount = new RegExp(`^(${fraction}(?:\\s*[-–]\\s*${fraction})?)\\s*(.*)$`, "i").exec(line);
+    if (amount) {
+      qty = amount[1].replace(",", ".");
+      name = amount[2];
+      const unitMatch = /^(tbsp|tsp|kg|g|ml|l|litres?|liters?|pints?|cloves?|cans?|tins?|jars?|packs?|packets?|tubs?|bottles?|slices?|handfuls?|bunch(?:es)?|small bunch|large bunch)\b\s*(?:of\s+)?(.*)$/i.exec(name);
+      if (unitMatch) {
+        unit = unitMatch[1];
+        name = unitMatch[2];
+      }
+    }
+  }
+  name = stripIngredientPreparation(name) || line;
+  const nameKey = keyName(name);
+  const known = findItemByName(name) || data.items
+    .filter(item => !item.deletedAt && keyName(item.name).length >= 4)
+    .sort((a, b) => keyName(b.name).length - keyName(a.name).length)
+    .find(item => nameKey.includes(keyName(item.name)));
+  if (known) name = known.name;
+  return { name, qty, unit, category: guessIngredientCategory(name), raw: line };
+}
+
+async function fetchWithRecipeTimeout(url, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try { return await fetch(url, { signal: controller.signal, cache: "no-store" }); }
+  finally { clearTimeout(timer); }
+}
+
+async function extractRecipeFromUrl(rawUrl) {
+  const url = normaliseRecipeUrl(rawUrl);
+  if (!url) throw new Error("Enter a valid http or https recipe link.");
+
+  // Prefer the publisher's own Schema.org Recipe data when CORS allows it.
+  try {
+    const direct = await fetchWithRecipeTimeout(url.href, 6500);
+    if (direct.ok) {
+      const recipe = recipeFromHtml(await direct.text(), url.href);
+      if (recipe) return recipe;
+    }
+  } catch (_) {}
+
+  // Static PWAs cannot read many third-party pages because of CORS. For this
+  // prototype, Reader is a fetch bridge only; parsing below remains rule-based.
+  let response;
+  try {
+    response = await fetchWithRecipeTimeout(`https://r.jina.ai/${url.href}`, 18000);
+  } catch (_) {
+    throw new Error("The recipe page could not be reached. Check the link and try again.");
+  }
+  if (!response.ok) throw new Error(`The recipe page could not be read (${response.status}).`);
+  const recipe = recipeFromMarkdown(await response.text(), url.href);
+  if (!recipe) throw new Error("I could open that page, but couldn't find a clear ingredients section.");
+  return recipe;
+}
+
+function setRecipeImportStatus(message = "", isError = false) {
+  const status = $("#recipe-import-status");
+  status.textContent = message;
+  status.hidden = !message;
+  status.classList.toggle("error", !!isError);
+}
+
+function openRecipeImporter() {
+  $("#recipe-import-url").value = "";
+  setRecipeImportStatus();
+  $("#recipe-import-submit").disabled = false;
+  openOverlay("recipe-import-overlay");
+  setTimeout(() => $("#recipe-import-url").focus(), 50);
+}
+
+async function importRecipeFromWebsite(event) {
+  event.preventDefault();
+  const button = $("#recipe-import-submit");
+  const url = $("#recipe-import-url").value;
+  button.disabled = true;
+  button.textContent = "Reading recipe…";
+  setRecipeImportStatus("Looking for the recipe name and ingredients…");
+  try {
+    const recipe = await extractRecipeFromUrl(url);
+    const ingredients = recipe.ingredients.map(parseRecipeIngredient).filter(item => item.name);
+    if (!ingredients.length) throw new Error("No usable ingredients were found on that page.");
+    closeOverlay("recipe-import-overlay");
+    openMealEditor(null, { name: recipe.name, ingredients, sourceUrl: recipe.sourceUrl });
+    showToast(`Imported ${ingredients.length} shopping item${ingredients.length === 1 ? "" : "s"}${recipe.serves ? ` · ${recipe.serves}` : ""}`);
+  } catch (error) {
+    setRecipeImportStatus(error?.message || "That recipe could not be imported.", true);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Read recipe";
+  }
+}
+
+function openMealEditor(mealId = null, prefill = null) {
   const meal = mealId ? findMeal(mealId) : null;
-  $("#meal-editor-title").textContent = meal ? "Edit meal" : "New meal";
+  const draft = prefill && !meal ? prefill : null;
+  $("#meal-editor-title").textContent = meal ? "Edit meal" : draft ? "Review imported meal" : "New meal";
   $("#meal-id").value = meal?.id || "";
-  $("#meal-name").value = meal?.name || "";
+  $("#meal-name").value = meal?.name || draft?.name || "";
   editingMealTags = normaliseMealTags(meal?.tags || []);
   editingMealRating = normaliseMealRating(meal?.rating || 0);
+  editingMealSourceUrl = meal?.sourceUrl || draft?.sourceUrl || "";
+  renderMealSourceRow();
   $("#meal-tag-input").value = "";
   renderMealTagEditor();
   renderMealRatingEditor();
   $("#ingredient-list").innerHTML = "";
-  (meal?.ingredients?.length ? meal.ingredients : [{}, {}, {}]).forEach(addIngredientRow);
+  const ingredients = meal?.ingredients?.length ? meal.ingredients : draft?.ingredients?.length ? draft.ingredients : [{}, {}, {}];
+  ingredients.forEach(addIngredientRow);
   $("#delete-meal").hidden = !meal;
   renderKnownItems();
   openOverlay("meal-editor-overlay");
@@ -1203,9 +1449,10 @@ function saveMealFromForm(event) {
     meal.ingredients = ingredients;
     meal.tags = normaliseMealTags(editingMealTags);
     meal.rating = normaliseMealRating(editingMealRating);
+    meal.sourceUrl = editingMealSourceUrl || null;
     touchRecord(meal, now);
   } else {
-    data.meals.push({ id: uid("meal"), name, ingredients, tags: normaliseMealTags(editingMealTags), rating: normaliseMealRating(editingMealRating), createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null });
+    data.meals.push({ id: uid("meal"), name, ingredients, tags: normaliseMealTags(editingMealTags), rating: normaliseMealRating(editingMealRating), sourceUrl: editingMealSourceUrl || null, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null });
     touchSharedState(now);
   }
   saveData();
@@ -2827,6 +3074,8 @@ function bindEvents() {
   $("#meal-tag-add").addEventListener("click", addCustomMealTag);
   $("#meal-tag-input").addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); addCustomMealTag(); } });
   $("#add-meal").addEventListener("click", () => openMealEditor());
+  $("#import-meal").addEventListener("click", openRecipeImporter);
+  $("#recipe-import-form").addEventListener("submit", importRecipeFromWebsite);
   $("#add-ingredient").addEventListener("click", () => addIngredientRow({}));
   $("#ingredient-list").addEventListener("click", event => { const remove = event.target.closest(".remove-ingredient"); if (remove) remove.closest("[data-ingredient-row]").remove(); });
   $("#ingredient-list").addEventListener("change", event => {

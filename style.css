@@ -1222,3 +1222,17 @@ body.modal-open { overflow: hidden; }
   border-top: 1px solid rgba(37,43,51,.10);
   background: var(--gh-surface);
 }
+
+
+/* v1.0.35 — recipe URL import prototype */
+.meal-header-actions { display:flex; align-items:center; gap:8px; flex:0 0 auto; }
+.import-meal-action { background:var(--gh-surface); color:var(--gh-ink); border:1.5px solid var(--gh-line); }
+.import-meal-action svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.recipe-import-status { margin-top:10px; padding:10px 12px; border-radius:13px; background:rgba(239,230,223,.72); color:var(--gh-muted); font-size:12px; line-height:1.35; }
+.recipe-import-status.error { color:#a85545; background:rgba(223,151,135,.12); }
+#recipe-import-submit { margin-top:12px; }
+.meal-source-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:8px; padding:8px 10px; border:1.5px solid var(--gh-line); border-radius:13px; background:rgba(239,230,223,.48); }
+.meal-source-row span { min-width:0; display:flex; align-items:baseline; gap:6px; overflow:hidden; }
+.meal-source-row strong { flex:0 0 auto; font-size:11px; }
+.meal-source-row small { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--gh-muted); font-size:10px; }
+.meal-source-row a { flex:0 0 auto; color:var(--gh-green-dark); font-size:10px; font-weight:800; text-decoration:none; }

@@ -1,3 +1,3 @@
-# MealPlanner v1.0.34
+# MealPlanner v1.0.35
 
-Meal editor usability pass. Delete meal / Save meal now stay pinned at the bottom of the edit sheet while the meal fields, tags, rating and shopping items scroll independently. No meal-data or Firebase sync logic changes.
+First recipe-link import prototype. Adds an Import button beside Add Meal, reads public recipe pages using structured Recipe data where available with a rule-based webpage-reader fallback for CORS-blocked sites, then opens the normal meal editor pre-filled for review. Imported meals retain their source URL. No Firebase sync changes.
