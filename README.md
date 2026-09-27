@@ -1,3 +1,3 @@
-# MealPlanner v1.0.35
+# MealPlanner v1.0.36
 
-First recipe-link import prototype. Adds an Import button beside Add Meal, reads public recipe pages using structured Recipe data where available with a rule-based webpage-reader fallback for CORS-blocked sites, then opens the normal meal editor pre-filled for review. Imported meals retain their source URL. No Firebase sync changes.
+Adds the first cookbook photo-import prototype alongside the existing website recipe importer. Users can take or choose up to four recipe photos; text recognition runs locally in the browser with Tesseract.js, then the existing deterministic ingredient parser opens the normal Edit Meal screen for review. The OCR library is loaded only when photo import is used. Existing Firebase sync/data structures are unchanged.

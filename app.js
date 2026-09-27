@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.35";
+const APP_VERSION = "1.0.36";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -579,6 +579,8 @@ let pickerRatingFilter = "any";
 let editingMealTags = [];
 let editingMealRating = 0;
 let editingMealSourceUrl = "";
+let photoImportFiles = [];
+let ocrScriptPromise = null;
 
 function currentMemberId() {
   return data?.settings?.currentMemberId || null;
@@ -1377,12 +1379,180 @@ function setRecipeImportStatus(message = "", isError = false) {
   status.classList.toggle("error", !!isError);
 }
 
+function setPhotoImportStatus(message = "", isError = false) {
+  const status = $("#recipe-photo-status");
+  status.textContent = message;
+  status.hidden = !message;
+  status.classList.toggle("error", !!isError);
+}
+
+function updatePhotoImportSelection() {
+  const row = $("#recipe-photo-selection");
+  if (!photoImportFiles.length) {
+    row.hidden = true;
+    row.textContent = "";
+    $("#recipe-photo-read").disabled = true;
+    return;
+  }
+  row.hidden = false;
+  row.textContent = `${photoImportFiles.length} photo${photoImportFiles.length === 1 ? "" : "s"} selected`;
+  $("#recipe-photo-read").disabled = false;
+}
+
+function selectRecipePhotos(event) {
+  const files = Array.from(event.target.files || []).filter(file => file.type.startsWith("image/")).slice(0, 4);
+  photoImportFiles = files;
+  updatePhotoImportSelection();
+  setPhotoImportStatus(files.length ? "Ready to read. Clear, straight-on photos work best." : "");
+}
+
+function loadOcrLibrary() {
+  if (window.Tesseract?.createWorker) return Promise.resolve(window.Tesseract);
+  if (ocrScriptPromise) return ocrScriptPromise;
+  ocrScriptPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js";
+    script.async = true;
+    script.onload = () => window.Tesseract?.createWorker ? resolve(window.Tesseract) : reject(new Error("The photo reader could not start."));
+    script.onerror = () => reject(new Error("The photo reader could not be downloaded. Check your connection and try again."));
+    document.head.appendChild(script);
+  }).catch(error => { ocrScriptPromise = null; throw error; });
+  return ocrScriptPromise;
+}
+
+async function imageFileForOcr(file) {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.decoding = "async";
+    image.src = objectUrl;
+    if (image.decode) await image.decode();
+    else await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = reject; });
+    const maxSide = 2100;
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+    canvas.height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+    const context = canvas.getContext("2d", { alpha: false });
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+function cleanOcrRecipeLine(value) {
+  return normaliseName(String(value || "")
+    .replace(/[•●▪◦·]/g, " ")
+    .replace(/^[-–—]+\s*/, "")
+    .replace(/\s*[|]\s*/g, " "));
+}
+
+function ocrLineLooksLikeMetadata(line) {
+  return /^(serves?|makes?|prep(?:aration)?|cook(?:ing)?|ready in|total time|difficulty|page\s+\d+|\d+\s*(mins?|minutes?|hrs?|hours?))\b/i.test(line) || /^\d+$/.test(line);
+}
+
+function ocrLineLooksLikeIngredient(line) {
+  const clean = cleanOcrRecipeLine(line);
+  if (!clean || clean.length > 120) return false;
+  if (/^(method|directions|instructions|preparation|step\s+\d+|how to|heat |preheat |cook |stir |mix |place |add the )/i.test(clean)) return false;
+  const afterLeadingNumber = clean.replace(/^(?:\d+(?:[.,]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])(?:\s*[-–]\s*(?:\d+(?:[.,]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞]))?\s+/, "");
+  if (afterLeadingNumber !== clean && /^(heat|preheat|cook|stir|mix|place|add|pour|bake|fry|roast|season|bring|leave|transfer|serve)\b/i.test(afterLeadingNumber)) return false;
+  if (/^(?:\d+(?:[.,]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])(?:\s*[-–]\s*(?:\d+(?:[.,]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞]))?\s*(?:x|×)?\s*(?:\d+(?:[.,]\d+)?)?\s*(?:g|kg|ml|l|tbsp|tsp|cloves?|cans?|tins?|packs?|packets?|jars?|bottles?|bunch(?:es)?|handfuls?|slices?)?\b/i.test(clean)) return true;
+  return /^(?:a|an)\s+(?:small|medium|large)?\s*\w+|^(?:pinch|handful|salt|pepper|oil)\b/i.test(clean);
+}
+
+function recipeFromOcrText(rawText) {
+  const lines = String(rawText || "").replace(/\r/g, "").split("\n").map(cleanOcrRecipeLine).filter(Boolean);
+  if (!lines.length) return null;
+  const ingredientHeading = /^(ingredients?|you(?:'|’)ll need|you will need|what you need|shopping list)\s*:?[\s]*$/i;
+  const stopHeading = /^(method|directions|instructions|preparation|steps?|how to make|cooking method|to cook)\s*:?[\s]*$/i;
+  let start = lines.findIndex(line => ingredientHeading.test(line));
+  let ingredientLines = [];
+
+  if (start >= 0) {
+    for (let i = start + 1; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (stopHeading.test(line)) break;
+      if (/^for (?:the )?\w+(?:\s+\w+){0,3}:?$/i.test(line) && !/\d/.test(line)) continue;
+      if (ocrLineLooksLikeMetadata(line)) continue;
+      ingredientLines.push(line);
+    }
+  } else {
+    ingredientLines = lines.filter(ocrLineLooksLikeIngredient);
+    start = ingredientLines.length ? lines.indexOf(ingredientLines[0]) : -1;
+  }
+
+  ingredientLines = ingredientLines
+    .map(line => line.replace(/^\d+[.)]\s+/, ""))
+    .filter(line => line.length > 1 && !stopHeading.test(line));
+
+  if (ingredientLines.length < 2) return null;
+
+  const before = lines.slice(0, Math.max(0, start)).filter(line => !ingredientHeading.test(line) && !ocrLineLooksLikeMetadata(line) && line.length >= 3 && line.length <= 90);
+  let name = before.length ? before[before.length - 1] : "Imported recipe";
+  if (/^[A-Z0-9 '&-]{4,}$/.test(name)) name = name.toLowerCase().replace(/(^|[\s&-])([a-z])/g, (_, lead, letter) => lead + letter.toUpperCase());
+  const serves = lines.find(line => /^(serves?|makes?)\b/i.test(line)) || "";
+  return { name, ingredients: ingredientLines, serves, sourceUrl: null };
+}
+
+async function importRecipeFromPhotos() {
+  if (!photoImportFiles.length) return;
+  const button = $("#recipe-photo-read");
+  button.disabled = true;
+  button.textContent = "Reading photos…";
+  setPhotoImportStatus("Loading the on-device photo reader…");
+  let worker = null;
+  let currentPhoto = 0;
+  try {
+    const Tesseract = await loadOcrLibrary();
+    worker = await Tesseract.createWorker("eng", 1, {
+      logger(message) {
+        if (message.status === "recognizing text") {
+          const percent = Math.round((message.progress || 0) * 100);
+          setPhotoImportStatus(`Reading photo ${currentPhoto + 1} of ${photoImportFiles.length} · ${percent}%`);
+        } else if (/loading|initializing/i.test(message.status || "")) {
+          setPhotoImportStatus("Preparing the photo reader…");
+        }
+      }
+    });
+
+    const textParts = [];
+    for (let index = 0; index < photoImportFiles.length; index += 1) {
+      currentPhoto = index;
+      setPhotoImportStatus(`Preparing photo ${index + 1} of ${photoImportFiles.length}…`);
+      const image = await imageFileForOcr(photoImportFiles[index]);
+      const result = await worker.recognize(image, { rotateAuto: true });
+      if (result?.data?.text) textParts.push(result.data.text);
+    }
+
+    const recipe = recipeFromOcrText(textParts.join("\n"));
+    if (!recipe) throw new Error("I could read text from the photos, but couldn't isolate a clear ingredient list. Try a closer photo showing the title and Ingredients section.");
+    const ingredients = recipe.ingredients.map(parseRecipeIngredient).filter(item => item.name);
+    if (!ingredients.length) throw new Error("No usable shopping ingredients were found in those photos.");
+    closeOverlay("recipe-import-overlay");
+    openMealEditor(null, { name: recipe.name, ingredients });
+    showToast(`Read ${ingredients.length} shopping item${ingredients.length === 1 ? "" : "s"} from ${photoImportFiles.length} photo${photoImportFiles.length === 1 ? "" : "s"}${recipe.serves ? ` · ${recipe.serves}` : ""}`);
+  } catch (error) {
+    setPhotoImportStatus(error?.message || "Those photos could not be read.", true);
+  } finally {
+    if (worker) { try { await worker.terminate(); } catch (_) {} }
+    button.disabled = false;
+    button.textContent = "Read photos";
+  }
+}
+
 function openRecipeImporter() {
   $("#recipe-import-url").value = "";
   setRecipeImportStatus();
+  photoImportFiles = [];
+  $("#recipe-photo-files").value = "";
+  setPhotoImportStatus();
+  updatePhotoImportSelection();
   $("#recipe-import-submit").disabled = false;
   openOverlay("recipe-import-overlay");
-  setTimeout(() => $("#recipe-import-url").focus(), 50);
 }
 
 async function importRecipeFromWebsite(event) {
@@ -3076,6 +3246,8 @@ function bindEvents() {
   $("#add-meal").addEventListener("click", () => openMealEditor());
   $("#import-meal").addEventListener("click", openRecipeImporter);
   $("#recipe-import-form").addEventListener("submit", importRecipeFromWebsite);
+  $("#recipe-photo-files").addEventListener("change", selectRecipePhotos);
+  $("#recipe-photo-read").addEventListener("click", importRecipeFromPhotos);
   $("#add-ingredient").addEventListener("click", () => addIngredientRow({}));
   $("#ingredient-list").addEventListener("click", event => { const remove = event.target.closest(".remove-ingredient"); if (remove) remove.closest("[data-ingredient-row]").remove(); });
   $("#ingredient-list").addEventListener("change", event => {
