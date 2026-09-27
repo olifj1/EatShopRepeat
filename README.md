@@ -1,3 +1,3 @@
-# MealPlanner v1.0.31
+# MealPlanner v1.0.32
 
-Meal picker UI refinement. The picker now keeps a stable sheet height while filtering, picker results use the same star-and-rounded-tag presentation as the main Meals list, and the rating filter matches the search field height with a small dropdown chevron. Firebase/data behaviour is unchanged.
+UI containment fix. Keeps edit-meal sheets fixed to the viewport while allowing only tag rows to scroll horizontally, and prevents the Choose Meal tag filter row from shrinking/clipping inside the stable picker sheet. No meal-data or Firebase sync changes.

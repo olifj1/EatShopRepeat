@@ -1134,3 +1134,51 @@ body.modal-open { overflow: hidden; }
   line-height: 1;
   white-space: nowrap;
 }
+
+/* v1.0.32 — contain sheets and preserve filter rows */
+.sheet {
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.sheet > *,
+.sheet form,
+.meal-editor-meta,
+.meal-editor-section,
+.meal-tag-add-row {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.meal-tag-editor {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+#meal-picker-overlay .sheet-header,
+#meal-picker-overlay .picker-search-row,
+#meal-picker-overlay .picker-tag-filters,
+#meal-picker-overlay .picker-clear-actions {
+  flex: 0 0 auto;
+}
+#meal-picker-overlay .picker-tag-filters {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 38px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 1px 7px;
+  box-sizing: border-box;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+#meal-picker-overlay .picker-tag-filters .meal-filter-chip {
+  flex: 0 0 auto;
+  max-width: none;
+}
