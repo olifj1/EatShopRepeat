@@ -1042,3 +1042,95 @@ body.modal-open { overflow: hidden; }
 .picker-row-meta { display:flex; align-items:center; gap:5px; min-width:0; margin-top:3px; overflow:hidden; }
 .picker-row-rating { flex:0 0 auto; color:var(--gold); font-size:9px; letter-spacing:-.04em; }
 .picker-row-tags { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--gh-muted); font-size:9px; }
+
+
+/* v1.0.31 — stable meal picker and aligned rating controls */
+.compact-star-filter {
+  position: relative;
+  width: 74px;
+  height: 48px;
+  min-height: 48px;
+  border-radius: 16px;
+  flex: 0 0 74px;
+}
+.compact-star-filter select {
+  height: 48px;
+  min-height: 48px;
+  padding: 0 21px 0 7px;
+  font-size: 12px;
+  text-align: center;
+  text-align-last: center;
+}
+.compact-star-filter .filter-chevron {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  width: 9px;
+  height: 6px;
+  transform: translateY(-50%);
+  fill: none;
+  stroke: var(--gh-muted);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+#meal-picker-overlay .sheet {
+  height: min(82dvh, 760px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#meal-picker-overlay .picker-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+#meal-picker-overlay .picker-clear-actions { flex: 0 0 auto; }
+
+.picker-row-main {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: block;
+}
+.picker-row-main > strong {
+  display: block;
+  color: var(--gh-ink);
+}
+.picker-row-count {
+  flex: 0 0 auto;
+  align-self: center;
+  white-space: nowrap;
+  color: var(--gh-muted);
+}
+.picker-row .picker-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  overflow: visible;
+}
+.picker-row .meal-card-rating {
+  color: var(--gold);
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: -.04em;
+}
+.picker-row .meal-tag-chip {
+  width: auto;
+  height: auto;
+  min-height: 20px;
+  padding: 3px 6px;
+  border: 1.5px solid color-mix(in srgb, var(--meal) 34%, transparent);
+  border-radius: 999px;
+  background: var(--meal-soft);
+  color: #985345;
+  font-size: 8px;
+  font-weight: 760;
+  line-height: 1;
+  white-space: nowrap;
+}

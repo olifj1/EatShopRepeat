@@ -1,3 +1,3 @@
-# MealPlanner v1.0.30
+# MealPlanner v1.0.31
 
-Meal-library UI refinement. Tags in the meal editor are now a single horizontally scrollable row; rating controls are compact with stars only; meal-card tag chips have cleaner sizing; the Meals search and compact star-rating filter share one row; and the daily meal picker now includes the same tag and star filters. Firebase/sync data structures are unchanged.
+Meal picker UI refinement. The picker now keeps a stable sheet height while filtering, picker results use the same star-and-rounded-tag presentation as the main Meals list, and the rating filter matches the search field height with a small dropdown chevron. Firebase/data behaviour is unchanged.

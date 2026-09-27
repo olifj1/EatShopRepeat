@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.30";
+const APP_VERSION = "1.0.31";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -932,11 +932,8 @@ function renderPicker() {
 function pickerRow(meal) {
   const tags = normaliseMealTags(meal.tags);
   const rating = mealRatingText(meal.rating);
-  const metaBits = [];
-  if (rating) metaBits.push(`<span class="picker-row-rating">${rating}</span>`);
-  if (tags.length) metaBits.push(`<span class="picker-row-tags">${tags.map(tag => escapeHtml(tag)).join(" · ")}</span>`);
-  const meta = metaBits.length ? `<span class="picker-row-meta">${metaBits.join("")}</span>` : `<span>${meal.ingredients.length} item${meal.ingredients.length === 1 ? "" : "s"}</span>`;
-  return `<button class="picker-row" type="button" data-pick-meal="${meal.id}"><strong>${escapeHtml(meal.name)}</strong>${meta}</button>`;
+  const meta = (rating || tags.length) ? `<span class="picker-row-meta meal-card-meta">${rating ? `<span class="meal-card-rating" aria-label="${normaliseMealRating(meal.rating)} out of 5 stars">${rating}</span>` : ""}${tags.map(tag => `<span class="meal-tag-chip">${escapeHtml(tag)}</span>`).join("")}</span>` : "";
+  return `<button class="picker-row" type="button" data-pick-meal="${meal.id}"><span class="picker-row-main"><strong>${escapeHtml(meal.name)}</strong>${meta}</span><span class="picker-row-count">${meal.ingredients.length} item${meal.ingredients.length === 1 ? "" : "s"}</span></button>`;
 }
 
 function normalisedAudienceIds(memberIds) {
@@ -2931,7 +2928,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.30", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.31", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {
