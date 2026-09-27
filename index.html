@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png?v=icon2">
-  <link rel="stylesheet" href="./style.css?v=1.0.33">
+  <link rel="stylesheet" href="./style.css?v=1.0.34">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -235,11 +235,12 @@
         </div>
         <div class="ingredient-list" id="ingredient-list"></div>
 
-        <div class="form-actions">
-          <button class="danger-quiet-button left" id="delete-meal" type="button" hidden>Delete meal</button>
-          <button class="primary-button grow" type="submit">Save meal</button>
-        </div>
       </form>
+
+      <div class="form-actions meal-editor-actions">
+        <button class="danger-quiet-button left" id="delete-meal" type="button" hidden>Delete meal</button>
+        <button class="primary-button grow" type="submit" form="meal-form">Save meal</button>
+      </div>
     </section>
   </div>
 
@@ -615,7 +616,7 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.33"></script>
-  <script type="module" src="./firebase-sync.js?v=1.0.33"></script>
+  <script src="./app.js?v=1.0.34"></script>
+  <script type="module" src="./firebase-sync.js?v=1.0.34"></script>
 </body>
 </html>

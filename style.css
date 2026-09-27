@@ -1192,3 +1192,33 @@ body.modal-open { overflow: hidden; }
 #meal-picker-overlay .picker-row {
   align-self: start;
 }
+
+
+/* v1.0.34 — pin meal editor actions while the form content scrolls */
+#meal-editor-overlay .sheet {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#meal-editor-overlay .sheet-handle,
+#meal-editor-overlay .sheet-header,
+#meal-editor-overlay .meal-editor-actions {
+  flex: 0 0 auto;
+}
+#meal-editor-overlay #meal-form {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-right: 1px;
+}
+#meal-editor-overlay .meal-editor-actions {
+  position: relative;
+  z-index: 2;
+  margin: 8px -2px 0;
+  padding: 10px 2px 0;
+  border-top: 1px solid rgba(37,43,51,.10);
+  background: var(--gh-surface);
+}

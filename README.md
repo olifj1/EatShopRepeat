@@ -1,3 +1,3 @@
-# MealPlanner v1.0.33
+# MealPlanner v1.0.34
 
-Meal picker layout polish: filtered result rows now keep their normal compact height instead of stretching to fill the sheet when only a few meals match. Empty space remains below the results. No meal data or Firebase sync logic changes.
+Meal editor usability pass. Delete meal / Save meal now stay pinned at the bottom of the edit sheet while the meal fields, tags, rating and shopping items scroll independently. No meal-data or Firebase sync logic changes.
