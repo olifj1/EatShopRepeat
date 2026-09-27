@@ -1,3 +1,3 @@
-# MealPlanner v1.0.39
+# MealPlanner v1.0.40
 
-Tag filters are now toggleable and multi-select on both Meals and Choose Meal; selecting multiple tags requires meals to match all selected tags. Custom tags can be deleted with a small × control, removing that tag from affected meals after confirmation. URL import now has stronger title detection plus a generic HTML fallback for WordPress/recipe-plugin print pages such as MV Create print URLs. Firebase sync code is unchanged.
+Tag-management polish. Replaces per-tag × delete controls with an explicit Remove mode beside Add. Any tag — including the built-in Kids, Adults, Sunday, Quick, Lunch, Vegetarian and Treat tags — can now be removed after confirmation. Removing a tag also removes it from meals using it and syncs the household tag library. No Firebase transport changes.

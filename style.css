@@ -1263,3 +1263,14 @@ body.modal-open { overflow: hidden; }
 .meal-editor-tag-group .meal-editor-tag.selected { background:transparent; border:0; }
 .meal-editor-tag-delete { width:24px; min-height:27px; border:0; border-left:1px solid color-mix(in srgb, var(--gh-line) 75%, transparent); background:transparent; color:var(--gh-muted); font:inherit; font-size:14px; line-height:1; padding:0 5px 1px; }
 .meal-editor-tag-group.selected .meal-editor-tag-delete { color:#985345; }
+
+
+/* v1.0.40 — deliberate tag removal mode */
+.meal-tag-add-row { grid-template-columns: minmax(0,1fr) auto auto; }
+.small-remove-button {
+  min-height:34px; padding:5px 9px; border:1.5px solid var(--gh-line); border-radius:13px;
+  background:var(--gh-surface); color:var(--gh-muted); font:inherit; font-size:11px; font-weight:800;
+}
+.small-remove-button.active { background:var(--meal-soft); border-color:color-mix(in srgb, var(--meal) 48%, transparent); color:#985345; }
+.meal-editor-tag.remove-mode { border-color:color-mix(in srgb, var(--meal) 52%, transparent); color:#a55749; background:rgba(247,241,235,.72); }
+.meal-editor-tag.remove-mode.selected { background:var(--meal-soft); }
