@@ -1,8 +1,7 @@
-# MealPlanner v1.0.43
+# MealPlanner v1.0.44
 
-Recipe Library layout refinement.
+Removes the separate Cook tab. Meals that contain a cooking method keep their Cook button, which now opens the recipe method directly as a popup from the Meals screen.
 
-- Keeps the Recipe Library sheet at a consistent height when switching between packs.
-- Short recipe lists now leave empty space below instead of shrinking the sheet.
-- Longer lists continue to scroll inside the same fixed recipe area.
-- No recipe-library data or Firebase sync changes.
+The main navigation is back to Week, Meals and Shop. Existing users whose last open tab was Cook are safely returned to Week after updating.
+
+No Firebase sync or recipe-library data changes in this release.

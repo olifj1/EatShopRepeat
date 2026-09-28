@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.43";
+const APP_VERSION = "1.0.44";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -1202,30 +1202,11 @@ function householdMealIngredientText(ingredient) {
   return [ingredient.qty, ingredient.unit, item?.name].filter(Boolean).join(" ");
 }
 
-function renderCook() {
-  const container = $("#cook-list");
-  if (!container) return;
-  const withMethod = data.meals.filter(meal => !meal.deletedAt && normaliseMethod(meal.method).length).sort((a, b) => a.name.localeCompare(b.name));
-  const week = getWeek();
-  const plannedIds = [];
-  ["dinner", "lunch"].forEach(slotType => week.slots[slotType].forEach(assignments => assignments.forEach(assignment => {
-    if (assignment.mealId && assignment.mealId !== NO_MEAL && !plannedIds.includes(assignment.mealId)) plannedIds.push(assignment.mealId);
-  })));
-  const planned = plannedIds.map(findMeal).filter(meal => meal && normaliseMethod(meal.method).length);
-  const row = meal => `<button class="cook-card" type="button" data-view-method="${escapeHtml(meal.id)}"><span><strong>${escapeHtml(meal.name)}</strong><small>${meal.method.length} step${meal.method.length === 1 ? "" : "s"} · ${meal.ingredients.length} ingredient${meal.ingredients.length === 1 ? "" : "s"}</small></span><span>›</span></button>`;
-  let html = "";
-  if (planned.length) html += `<div class="cook-section"><div class="cook-section-title">This week</div>${planned.map(row).join("")}</div>`;
-  if (withMethod.length) html += `<div class="cook-section"><div class="cook-section-title">All saved recipes</div>${withMethod.map(row).join("")}</div>`;
-  container.innerHTML = html || `<div class="empty-state"><strong>No cooking methods yet</strong><p>Add a recipe from the Library, import one, or add steps while editing a meal.</p></div>`;
-}
-
 function startCookingMeal(mealId) {
   const meal = findMeal(mealId);
   if (!meal) return;
   if (!normaliseMethod(meal.method).length) return showToast("No cooking method has been added yet");
-  switchTab("cook");
-  renderCook();
-  requestAnimationFrame(() => openMealMethod(mealId));
+  openMealMethod(mealId);
 }
 
 function openMealMethod(mealId) {
@@ -3829,14 +3810,13 @@ function saveWeekSettings(event) {
 }
 
 function switchTab(tab) {
-  if (!['week', 'meals', 'cook', 'shop'].includes(tab)) tab = 'week';
+  if (!['week', 'meals', 'shop'].includes(tab)) tab = 'week';
   $$(".screen").forEach(screen => { const active = screen.dataset.screen === tab; screen.hidden = !active; screen.classList.toggle("active", active); });
   $$(".nav-button").forEach(button => { const active = button.dataset.tab === tab; button.classList.toggle("active", active); if (active) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current"); });
   data.settings.lastTab = tab;
   saveData();
   if (tab === "shop") renderShop();
   if (tab === "meals") renderMeals();
-  if (tab === "cook") renderCook();
   window.scrollTo(0, 0);
 }
 
@@ -3844,7 +3824,6 @@ function renderAll() {
   renderKnownItems();
   renderWeek();
   renderMeals();
-  renderCook();
   renderShop();
   if ($("#household-title")) renderHouseholdSummary();
 }
@@ -4090,7 +4069,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.43", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.44", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {
