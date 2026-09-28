@@ -1,0 +1,356 @@
+{
+  "schemaVersion": 1,
+  "libraryVersion": 1,
+  "updatedAt": "2026-09-27T21:30:00Z",
+  "sources": [
+    {
+      "id": "public-domain-recipes",
+      "title": "Public Domain Recipes",
+      "publisher": "PublicDomainRecipes.com contributors",
+      "sourceUrl": "https://publicdomainrecipes.com/",
+      "license": "Public domain / Unlicense",
+      "licenseUrl": "https://github.com/ronaldl29/public-domain-recipes#license",
+      "commercialUseAllowed": true,
+      "redistributionAllowed": true
+    }
+  ],
+  "packs": [
+    {
+      "id": "pdr-starter",
+      "title": "Public Domain Starter",
+      "description": "A small test collection of familiar recipes from Public Domain Recipes.",
+      "type": "source-collection",
+      "access": "free",
+      "sourceId": "public-domain-recipes"
+    },
+    {
+      "id": "family-classics",
+      "title": "Family Classics",
+      "description": "Familiar dinners that make a useful first household recipe collection.",
+      "type": "curated",
+      "access": "free"
+    },
+    {
+      "id": "sunday-lunch",
+      "title": "Sunday Lunch",
+      "description": "Roast-day sides, a hearty main and something sweet afterwards.",
+      "type": "curated",
+      "access": "free"
+    },
+    {
+      "id": "pasta-night",
+      "title": "Pasta Night",
+      "description": "A small pasta-focused set for testing overlapping recipe packs.",
+      "type": "curated",
+      "access": "free"
+    },
+    {
+      "id": "breakfast-brunch",
+      "title": "Breakfast & Brunch",
+      "description": "Simple breakfast recipes for slower mornings.",
+      "type": "curated",
+      "access": "free"
+    }
+  ],
+  "recipes": [
+    {
+      "id": "pdr-shepherds-pie",
+      "title": "Shepherd's Pie",
+      "servings": "8",
+      "tags": ["Lamb", "Family", "Classic", "Oven"],
+      "packIds": ["pdr-starter", "family-classics", "sunday-lunch"],
+      "sourceId": "public-domain-recipes",
+      "sourceUrl": "https://publicdomainrecipes.com/shepherds-pie/",
+      "ingredients": [
+        {"name":"Potatoes","qty":"600","unit":"g","category":"Fruit & veg"},
+        {"name":"Onions","qty":"2","unit":"","category":"Fruit & veg"},
+        {"name":"Carrots","qty":"2","unit":"","category":"Fruit & veg"},
+        {"name":"Cooking oil","qty":"4","unit":"tbsp","category":"Cupboard"},
+        {"name":"Lamb mince","qty":"800","unit":"g","category":"Meat & fish"},
+        {"name":"Frozen peas","qty":"100","unit":"g","category":"Frozen"},
+        {"name":"Tomato purée","qty":"2","unit":"tbsp","category":"Cupboard"},
+        {"name":"Beef stock","qty":"300","unit":"ml","category":"Cupboard"},
+        {"name":"Paprika","qty":"1","unit":"tbsp","category":"Cupboard"},
+        {"name":"Butter","qty":"30","unit":"g","category":"Chilled & dairy"},
+        {"name":"Milk","qty":"200","unit":"ml","category":"Chilled & dairy"},
+        {"name":"Nutmeg","qty":"1","unit":"pinch","category":"Cupboard"}
+      ],
+      "method": [
+        "Peel and cube the potatoes, then boil in salted water until tender. Dice the onions and carrots.",
+        "Brown the lamb in the oil. Add the onions, carrots and peas, then stir in the tomato purée, stock and paprika. Season to taste.",
+        "Drain and mash the potatoes with the butter and milk, then season with nutmeg, salt and pepper.",
+        "Heat the oven to 200°C. Spoon the lamb mixture into a baking dish, spread the mash over the top and bake for 30–40 minutes until hot and browned."
+      ]
+    },
+    {
+      "id": "pdr-lasagna",
+      "title": "Lasagna",
+      "servings": "6",
+      "tags": ["Pasta", "Italian", "Family", "Oven"],
+      "packIds": ["pdr-starter", "family-classics", "pasta-night"],
+      "sourceId": "public-domain-recipes",
+      "sourceUrl": "https://publicdomainrecipes.com/lasagna/",
+      "ingredients": [
+        {"name":"Lasagna sheets","qty":"1","unit":"pack","category":"Cupboard"},
+        {"name":"Bolognese sauce","qty":"1","unit":"l","category":"Cupboard"},
+        {"name":"Béchamel sauce","qty":"1","unit":"batch","category":"Chilled & dairy"},
+        {"name":"Parmesan","qty":"","unit":"","category":"Chilled & dairy"},
+        {"name":"Mozzarella","qty":"","unit":"","category":"Chilled & dairy"}
+      ],
+      "method": [
+        "Prepare the bolognese and béchamel. Heat the oven to 175°C and cook the lasagna sheets first if the packet requires it.",
+        "Spread a thin layer of bolognese in a deep baking dish, then add pasta sheets and a layer of béchamel.",
+        "Continue layering pasta, bolognese and béchamel until the dish is nearly full, finishing with béchamel.",
+        "Top with parmesan and mozzarella, cover with foil and bake for 30–35 minutes. Remove the foil and cook until the top is browned.",
+        "Rest for about 10 minutes before slicing."
+      ]
+    },
+    {
+      "id": "pdr-basic-meatballs",
+      "title": "Basic Meatballs",
+      "servings": "4",
+      "tags": ["Beef", "Pork", "Family", "Pasta"],
+      "packIds": ["pdr-starter", "family-classics", "pasta-night"],
+      "sourceId": "public-domain-recipes",
+      "sourceUrl": "https://publicdomainrecipes.com/basic-meatballs/",
+      "ingredients": [
+        {"name":"Beef mince","qty":"450","unit":"g","category":"Meat & fish"},
+        {"name":"Pork mince","qty":"450","unit":"g","category":"Meat & fish"},
+        {"name":"Italian breadcrumbs","qty":"0.5","unit":"cup","category":"Cupboard"},
+        {"name":"Milk","qty":"0.33","unit":"cup","category":"Chilled & dairy"},
+        {"name":"Onion","qty":"0.5","unit":"","category":"Fruit & veg"},
+        {"name":"Egg","qty":"1","unit":"","category":"Chilled & dairy"},
+        {"name":"Parmesan","qty":"0.5","unit":"cup","category":"Chilled & dairy"},
+        {"name":"Parsley","qty":"0.25","unit":"cup","category":"Fruit & veg"},
+        {"name":"Dried oregano","qty":"2","unit":"tbsp","category":"Cupboard"},
+        {"name":"Garlic powder","qty":"1","unit":"tbsp","category":"Cupboard"}
+      ],
+      "method": [
+        "Heat the oven to 200°C and combine all the ingredients in a large bowl.",
+        "Shape the mixture into meatballs and place them on a baking tray.",
+        "For extra colour, brown the meatballs in a lightly oiled frying pan for a few minutes on each side.",
+        "Transfer to the oven and cook until the centres are fully cooked, roughly 10–20 minutes depending on size.",
+        "Serve with pasta, tomato sauce or in a meatball sub."
+      ]
+    },
+    {
+      "id": "pdr-chicken-parmesan",
+      "title": "Chicken Parmesan",
+      "servings": "4",
+      "tags": ["Chicken", "Italian", "Family", "Pasta"],
+      "packIds": ["pdr-starter", "family-classics", "pasta-night"],
+      "sourceId": "public-domain-recipes",
+      "sourceUrl": "https://publicdomainrecipes.com/chicken-parmesan/",
+      "ingredients": [
+        {"name":"Chicken breasts","qty":"4","unit":"","category":"Meat & fish"},
+        {"name":"Tomatoes","qty":"1","unit":"tin","category":"Cupboard"},
+        {"name":"Mozzarella","qty":"1","unit":"pack","category":"Chilled & dairy"},
+        {"name":"Parmesan","qty":"","unit":"","category":"Chilled & dairy"},
+        {"name":"Breadcrumbs","qty":"","unit":"","category":"Cupboard"},
+        {"name":"Eggs","qty":"2","unit":"","category":"Chilled & dairy"},
+        {"name":"Flour","qty":"","unit":"","category":"Cupboard"},
+        {"name":"Pasta sauce","qty":"1","unit":"jar","category":"Cupboard"}
+      ],
+      "method": [
+        "Slice or pound the chicken breasts until fairly thin and even.",
+        "Set out three bowls: seasoned flour, beaten egg, and breadcrumbs mixed with grated parmesan.",
+        "Coat each chicken piece in flour, then egg, then the breadcrumb mixture.",
+        "Shallow-fry until golden on both sides, then transfer to an ovenproof tray.",
+        "Top with mozzarella and parmesan and cook under a hot grill or in the oven just until the cheese melts.",
+        "Serve with warm pasta sauce and pasta if you like."
+      ]
+    },
+    {
+      "id": "pdr-simple-chicken-curry",
+      "title": "Simple Chicken Curry",
+      "servings": "3–4",
+      "tags": ["Chicken", "Curry", "Easy"],
+      "packIds": ["pdr-starter", "family-classics"],
+      "sourceId": "public-domain-recipes",
+      "sourceUrl": "https://publicdomainrecipes.com/simple-chicken-curry/",
+      "ingredients": [
+        {"name":"Chicken breasts","qty":"680","unit":"g","category":"Meat & fish"},
+        {"name":"Butter","qty":"60","unit":"g","category":"Chilled & dairy"},
+        {"name":"Onion","qty":"1","unit":"large","category":"Fruit & veg"},
+        {"name":"Garlic","qty":"4","unit":"cloves","category":"Fruit & veg"},
+        {"name":"Chicken stock","qty":"600","unit":"ml","category":"Cupboard"},
+        {"name":"Crushed tomatoes","qty":"600","unit":"ml","category":"Cupboard"},
+        {"name":"Ground coriander","qty":"1.5","unit":"tsp","category":"Cupboard"},
+        {"name":"Ground cumin","qty":"1","unit":"tsp","category":"Cupboard"},
+        {"name":"Turmeric","qty":"0.5","unit":"tsp","category":"Cupboard"},
+        {"name":"Ground ginger","qty":"0.5","unit":"tsp","category":"Cupboard"}
+      ],
+      "method": [
+        "Dice the onion, mince the garlic and cut the chicken into bite-sized pieces.",
+        "Cook the onion and garlic gently in the butter until the onion begins to colour.",
+        "Add the chicken stock and tomatoes and bring to a boil.",
+        "Stir in the chicken and spices, reduce to a simmer and cook for about 30 minutes until the chicken is cooked through and the sauce has thickened.",
+        "Serve with rice or flatbreads."
+      ]
+    },
+    {
+      "id": "pdr-baked-salmon",
+      "title": "Baked Salmon",
+      "servings": "4",
+      "tags": ["Fish", "Quick", "Easy"],
+      "packIds": ["pdr-starter", "family-classics"],
+      "sourceId": "public-domain-recipes",
+      "sourceUrl": "https://publicdomainrecipes.com/baked-salmon/",
+      "ingredients": [
+        {"name":"Salmon fillets","qty":"4","unit":"","category":"Meat & fish"},
+        {"name":"Red pepper flakes","qty":"","unit":"","category":"Cupboard"},
+        {"name":"Lemon juice","qty":"","unit":"","category":"Fruit & veg"},
+        {"name":"Butter","qty":"4","unit":"tsp","category":"Chilled & dairy"},
+        {"name":"Cooking oil","qty":"","unit":"","category":"Cupboard"}
+      ],
+      "method": [
+        "Heat the oven to 200°C. Season the salmon with salt, black pepper and a little red pepper flake.",
+        "Lightly oil a foil-lined baking tray and place the salmon on it.",
+        "Squeeze over lemon juice and add a small knob of butter to each fillet.",
+        "Bake for about 19 minutes, or until cooked to your liking."
+      ]
+    },
+    {
+      "id": "pdr-yorkshire-puddings",
+      "title": "Yorkshire Puddings",
+      "servings": "2",
+      "tags": ["Side", "Sunday", "Classic", "Vegetarian"],
+      "packIds": ["pdr-starter", "sunday-lunch"],
+      "sourceId": "public-domain-recipes",
+      "sourceUrl": "https://publicdomainrecipes.com/yorkshire-puddings/",
+      "ingredients": [
+        {"name":"Plain flour","qty":"140","unit":"g","category":"Cupboard"},
+        {"name":"Eggs","qty":"4","unit":"","category":"Chilled & dairy"},
+        {"name":"Milk","qty":"200","unit":"ml","category":"Chilled & dairy"},
+        {"name":"Sunflower oil","qty":"","unit":"","category":"Cupboard"}
+      ],
+      "method": [
+        "Heat the oven to 230°C. Add a little oil to each hole of a muffin tin and place the tin in the oven to get very hot.",
+        "Put the flour in a bowl, whisk in the eggs, then gradually whisk in the milk until the batter is smooth.",
+        "Pour the batter into a jug, carefully divide it between the hot tin holes and return immediately to the oven.",
+        "Bake without opening the door for about 20 minutes, until tall and deeply golden."
+      ]
+    },
+    {
+      "id": "pdr-creamy-mash",
+      "title": "Creamy Mashed Potatoes",
+      "servings": "4",
+      "tags": ["Potato", "Side", "Sunday"],
+      "packIds": ["pdr-starter", "sunday-lunch"],
+      "sourceId": "public-domain-recipes",
+      "sourceUrl": "https://publicdomainrecipes.com/creamy-mashed-potatoes/",
+      "ingredients": [
+        {"name":"Potatoes","qty":"1","unit":"kg","category":"Fruit & veg"},
+        {"name":"Milk","qty":"200","unit":"ml","category":"Chilled & dairy"},
+        {"name":"Mayonnaise","qty":"200","unit":"ml","category":"Cupboard"},
+        {"name":"Cheese","qty":"100","unit":"g","category":"Chilled & dairy"},
+        {"name":"Bacon","qty":"12","unit":"strips","category":"Meat & fish"},
+        {"name":"Butter","qty":"","unit":"","category":"Chilled & dairy"},
+        {"name":"Spring onions","qty":"3","unit":"","category":"Fruit & veg"}
+      ],
+      "method": [
+        "Peel and chop the potatoes, then boil until very tender.",
+        "While they cook, chop and fry the bacon, warm the milk and mayonnaise together, grate the cheese and slice the spring onions.",
+        "Drain the potatoes thoroughly, add the warm milk mixture and a little butter, then mash until smooth.",
+        "Season, mix in the cheese and bacon, and finish with the spring onions."
+      ]
+    },
+    {
+      "id": "pdr-spaghetti-sauce",
+      "title": "Spaghetti Sauce",
+      "servings": "10+",
+      "tags": ["Tomato", "Pasta", "Vegetarian", "Batch"],
+      "packIds": ["pdr-starter", "pasta-night"],
+      "sourceId": "public-domain-recipes",
+      "sourceUrl": "https://publicdomainrecipes.com/spaghetti-sauce/",
+      "ingredients": [
+        {"name":"Tinned tomatoes","qty":"4","unit":"tins","category":"Cupboard"},
+        {"name":"Tomato paste","qty":"1","unit":"tin","category":"Cupboard"},
+        {"name":"Garlic","qty":"12","unit":"cloves","category":"Fruit & veg"},
+        {"name":"Olive oil","qty":"0.75","unit":"cup","category":"Cupboard"},
+        {"name":"Basil","qty":"","unit":"","category":"Fruit & veg"},
+        {"name":"Red pepper flakes","qty":"","unit":"","category":"Cupboard"}
+      ],
+      "method": [
+        "Peel and mince the garlic, then cook it gently in most of the olive oil until fragrant and lightly golden.",
+        "Stir in the tomato paste and tomatoes. Add red pepper flakes if using and bring to a simmer.",
+        "Cook uncovered for about 45 minutes, stirring from time to time.",
+        "Season with salt, then stir in the remaining olive oil and fresh basil if using."
+      ]
+    },
+    {
+      "id": "pdr-banana-pancakes",
+      "title": "Banana Pancakes",
+      "servings": "4",
+      "tags": ["Breakfast", "Pancake", "Vegetarian", "Quick"],
+      "packIds": ["pdr-starter", "breakfast-brunch"],
+      "sourceId": "public-domain-recipes",
+      "sourceUrl": "https://publicdomainrecipes.com/banana-pancakes/",
+      "ingredients": [
+        {"name":"Plain flour","qty":"1","unit":"cup","category":"Cupboard"},
+        {"name":"Sugar","qty":"1","unit":"tbsp","category":"Cupboard"},
+        {"name":"Baking powder","qty":"2","unit":"tsp","category":"Cupboard"},
+        {"name":"Milk","qty":"1","unit":"cup","category":"Chilled & dairy"},
+        {"name":"Egg","qty":"1","unit":"","category":"Chilled & dairy"},
+        {"name":"Bananas","qty":"2","unit":"","category":"Fruit & veg"}
+      ],
+      "method": [
+        "Mix the flour, sugar, baking powder and a pinch of salt in a bowl.",
+        "Whisk in the milk and egg until the batter is smooth, then fold in the mashed bananas.",
+        "Melt a little butter in a frying pan over medium heat.",
+        "Spoon in the batter. When bubbles appear on the surface, turn and cook the other side until golden. Repeat with the remaining batter."
+      ]
+    },
+    {
+      "id": "pdr-french-toast",
+      "title": "French Toast",
+      "servings": "1",
+      "tags": ["Breakfast", "Brunch", "Vegetarian", "Quick"],
+      "packIds": ["pdr-starter", "breakfast-brunch"],
+      "sourceId": "public-domain-recipes",
+      "sourceUrl": "https://publicdomainrecipes.com/french-toast/",
+      "ingredients": [
+        {"name":"Eggs","qty":"2","unit":"","category":"Chilled & dairy"},
+        {"name":"Milk","qty":"0.5","unit":"cup","category":"Chilled & dairy"},
+        {"name":"Bread","qty":"5","unit":"slices","category":"Bakery"},
+        {"name":"Butter","qty":"","unit":"","category":"Chilled & dairy"},
+        {"name":"Maple syrup","qty":"","unit":"","category":"Cupboard"}
+      ],
+      "method": [
+        "Beat the eggs and milk together in a shallow bowl.",
+        "Melt a little butter in a frying pan over low to medium heat.",
+        "Dip each slice of bread into the egg mixture on both sides, letting the excess drip away.",
+        "Cook until golden underneath, turn and brown the other side. Repeat with the remaining bread.",
+        "Serve warm, with maple syrup if you like."
+      ]
+    },
+    {
+      "id": "pdr-apple-pie",
+      "title": "Apple Pie",
+      "servings": "8",
+      "tags": ["Dessert", "Apple", "Classic", "Baking"],
+      "packIds": ["pdr-starter", "sunday-lunch"],
+      "sourceId": "public-domain-recipes",
+      "sourceUrl": "https://publicdomainrecipes.com/apple-pie/",
+      "ingredients": [
+        {"name":"Apples","qty":"900","unit":"g","category":"Fruit & veg"},
+        {"name":"Lemon juice","qty":"1","unit":"tbsp","category":"Fruit & veg"},
+        {"name":"White sugar","qty":"80","unit":"g","category":"Cupboard"},
+        {"name":"Brown sugar","qty":"65","unit":"g","category":"Cupboard"},
+        {"name":"Cinnamon","qty":"1","unit":"tsp","category":"Cupboard"},
+        {"name":"Nutmeg","qty":"1","unit":"pinch","category":"Cupboard"},
+        {"name":"Cornflour","qty":"15","unit":"g","category":"Cupboard"},
+        {"name":"Plain flour","qty":"350","unit":"g","category":"Cupboard"},
+        {"name":"Butter","qty":"225","unit":"g","category":"Chilled & dairy"},
+        {"name":"Egg","qty":"1","unit":"","category":"Chilled & dairy"}
+      ],
+      "method": [
+        "Peel and slice the apples, then toss with lemon juice, sugars, cinnamon, nutmeg and cornflour. Leave for about 15 minutes.",
+        "Cook the apple mixture gently for roughly 15 minutes to reduce some of the released liquid, then leave to cool slightly.",
+        "Make a short pastry from the flour, salt, sugar, cold butter and enough iced water to bring it together. Divide into two pieces and roll out.",
+        "Line a pie dish with one piece of pastry, add the apple filling and cover with the second piece. Seal the edges and cut a few steam slits.",
+        "Brush with egg wash if using and bake at about 175°C for 45 minutes, until the pastry is golden and the filling bubbles."
+      ]
+    }
+  ]
+}

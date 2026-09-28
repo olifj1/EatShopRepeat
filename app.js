@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.40";
+const APP_VERSION = "1.0.41";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -17,9 +17,12 @@ const UNITS = ["", "pack", "packs", "g", "kg", "ml", "l", "pint", "pints", "tbsp
 const NO_MEAL = "__none__";
 const DEFAULT_WEEK_START_DAY = 5; // Friday
 const BUNDLED_CONTENT_VERSION = 1;
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 const MEMBER_COLORS = ["sage", "terracotta", "blue", "gold", "rose", "plum"];
 const DEFAULT_MEAL_TAGS = ["Kids", "Adults", "Sunday", "Quick", "Lunch", "Vegetarian", "Treat"];
+const RECIPE_LIBRARY_URL = "./recipe-library.json";
+const LIBRARY_ADMIN_ENABLED = true;
+const LIBRARY_ADMIN_OVERRIDE_KEY = "mealPlannerLibraryAdminOverrideV1";
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => Array.from(document.querySelectorAll(selector));
@@ -468,6 +471,11 @@ function normaliseMealRating(value) {
   return Number.isFinite(rating) ? Math.max(0, Math.min(5, Math.round(rating))) : 0;
 }
 
+function normaliseMethod(value) {
+  const raw = Array.isArray(value) ? value : String(value || "").replace(/\r/g, "").split("\n");
+  return raw.map(step => normaliseName(String(step || "").replace(/^\s*\d+[.)]\s*/, ""))).filter(Boolean);
+}
+
 function hiddenMealTagKeys() {
   return new Set((data?.household?.hiddenMealTags || []).map(keyName).filter(Boolean));
 }
@@ -537,6 +545,9 @@ function prepareDataObject(parsed) {
     ...meal,
     tags: normaliseMealTags(meal.tags),
     rating: normaliseMealRating(meal.rating),
+    method: normaliseMethod(meal.method),
+    libraryRecipeId: meal.libraryRecipeId || null,
+    librarySourceId: meal.librarySourceId || null,
     createdAt: meal.createdAt || meal.updatedAt || new Date().toISOString(),
     updatedAt: meal.updatedAt || meal.createdAt || new Date().toISOString(),
     updatedBy: meal.updatedBy || null,
@@ -592,6 +603,14 @@ let editingMealRating = 0;
 let editingMealSourceUrl = "";
 let photoImportFiles = [];
 let ocrScriptPromise = null;
+let recipeLibrary = { schemaVersion: 1, libraryVersion: 1, sources: [], packs: [], recipes: [] };
+let recipeLibraryLoaded = false;
+let recipeLibraryPromise = null;
+let librarySelectedPackId = "all";
+let libraryAdminMode = false;
+let activeLibraryRecipeId = null;
+let editingLibraryRecipeId = null;
+let activeMethodMealId = null;
 
 function currentMemberId() {
   return data?.settings?.currentMemberId || null;
@@ -900,6 +919,315 @@ function mealMatchesRatingValue(meal, filterValue) {
 
 function mealMatchesRating(meal) {
   return mealMatchesRatingValue(meal, mealRatingFilter);
+}
+
+function normaliseLibrary(raw) {
+  const clean = raw && typeof raw === "object" ? clone(raw) : {};
+  clean.schemaVersion = Number(clean.schemaVersion) || 1;
+  clean.libraryVersion = Number(clean.libraryVersion) || 1;
+  clean.updatedAt = clean.updatedAt || new Date().toISOString();
+  clean.sources = Array.isArray(clean.sources) ? clean.sources.filter(source => source?.id && source?.title) : [];
+  clean.packs = Array.isArray(clean.packs) ? clean.packs.filter(pack => pack?.id && pack?.title).map(pack => ({
+    ...pack,
+    description: normaliseName(pack.description || ""),
+    access: pack.access || "free",
+    type: pack.type || "curated"
+  })) : [];
+  clean.recipes = Array.isArray(clean.recipes) ? clean.recipes.filter(recipe => recipe?.id && recipe?.title).map(recipe => ({
+    ...recipe,
+    title: normaliseName(recipe.title),
+    servings: normaliseName(recipe.servings || ""),
+    tags: Array.from(new Set((recipe.tags || []).map(normaliseName).filter(Boolean))),
+    packIds: Array.from(new Set((recipe.packIds || []).filter(id => clean.packs.some(pack => pack.id === id)))),
+    ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients.map(ingredient => ({
+      name: normaliseName(ingredient?.name),
+      qty: normaliseName(ingredient?.qty),
+      unit: normaliseName(ingredient?.unit),
+      category: CATEGORIES.includes(ingredient?.category) ? ingredient.category : guessIngredientCategory(ingredient?.name || "")
+    })).filter(ingredient => ingredient.name) : [],
+    method: normaliseMethod(recipe.method),
+    sourceId: recipe.sourceId || null,
+    sourceUrl: recipe.sourceUrl || null
+  })) : [];
+  return clean;
+}
+
+async function loadRecipeLibrary() {
+  if (recipeLibraryLoaded) return recipeLibrary;
+  if (recipeLibraryPromise) return recipeLibraryPromise;
+  recipeLibraryPromise = (async () => {
+    let base = null;
+    try {
+      const response = await fetch(RECIPE_LIBRARY_URL, { cache: "no-store" });
+      if (!response.ok) throw new Error(`Library HTTP ${response.status}`);
+      base = await response.json();
+    } catch (error) {
+      console.warn("Recipe library could not be loaded from the app bundle:", error);
+    }
+    let override = null;
+    if (LIBRARY_ADMIN_ENABLED) {
+      try { override = JSON.parse(localStorage.getItem(LIBRARY_ADMIN_OVERRIDE_KEY) || "null"); } catch (_) {}
+    }
+    recipeLibrary = normaliseLibrary(override || base || recipeLibrary);
+    recipeLibraryLoaded = true;
+    return recipeLibrary;
+  })().finally(() => { recipeLibraryPromise = null; });
+  return recipeLibraryPromise;
+}
+
+function librarySource(id) { return recipeLibrary.sources.find(source => source.id === id) || null; }
+function libraryPack(id) { return recipeLibrary.packs.find(pack => pack.id === id) || null; }
+function libraryRecipe(id) { return recipeLibrary.recipes.find(recipe => recipe.id === id) || null; }
+function addedLibraryMeal(recipeId) { return data.meals.find(meal => !meal.deletedAt && meal.libraryRecipeId === recipeId) || null; }
+
+function libraryPackCount(packId) {
+  return recipeLibrary.recipes.filter(recipe => recipe.packIds.includes(packId)).length;
+}
+
+function renderLibraryPacks() {
+  const packs = recipeLibrary.packs;
+  const buttons = [{ id: "all", title: "All recipes" }, ...packs];
+  $("#library-pack-strip").innerHTML = buttons.map(pack => {
+    const active = librarySelectedPackId === pack.id;
+    const count = pack.id === "all" ? recipeLibrary.recipes.length : libraryPackCount(pack.id);
+    return `<button class="library-pack-chip ${active ? "active" : ""}" type="button" data-library-pack="${escapeHtml(pack.id)}" aria-pressed="${active}"><strong>${escapeHtml(pack.title)}</strong><small>${count}</small></button>`;
+  }).join("");
+}
+
+function renderLibraryPackSummary() {
+  const panel = $("#library-pack-summary");
+  const pack = librarySelectedPackId === "all" ? null : libraryPack(librarySelectedPackId);
+  panel.hidden = !pack;
+  if (!pack) { panel.innerHTML = ""; return; }
+  const recipeIds = recipeLibrary.recipes.filter(recipe => recipe.packIds.includes(pack.id)).map(recipe => recipe.id);
+  const missing = recipeIds.filter(id => !addedLibraryMeal(id)).length;
+  panel.innerHTML = `<div><strong>${escapeHtml(pack.title)}</strong><p>${escapeHtml(pack.description || "Recipe collection")}</p></div><button class="small-add-button" type="button" data-add-library-pack="${escapeHtml(pack.id)}" ${missing ? "" : "disabled"}>${missing ? `Add pack · ${missing}` : "Pack added"}</button>`;
+}
+
+function libraryRecipeMatches(recipe, query) {
+  if (librarySelectedPackId !== "all" && !recipe.packIds.includes(librarySelectedPackId)) return false;
+  if (!query) return true;
+  const haystack = [recipe.title, recipe.servings, ...(recipe.tags || []), ...(recipe.ingredients || []).map(item => item.name), ...recipe.packIds.map(id => libraryPack(id)?.title || "")].join(" ");
+  return keyName(haystack).includes(query);
+}
+
+function renderRecipeLibrary() {
+  if (!recipeLibraryLoaded) return;
+  renderLibraryPacks();
+  renderLibraryPackSummary();
+  const query = keyName($("#library-search").value);
+  const recipes = recipeLibrary.recipes.filter(recipe => libraryRecipeMatches(recipe, query)).sort((a, b) => a.title.localeCompare(b.title));
+  $("#library-recipe-list").innerHTML = recipes.length ? recipes.map(recipe => {
+    const added = !!addedLibraryMeal(recipe.id);
+    const packNames = recipe.packIds.filter(id => id !== "pdr-starter").slice(0, 2).map(id => libraryPack(id)?.title).filter(Boolean);
+    const source = librarySource(recipe.sourceId);
+    return `<article class="library-recipe-card"><button class="library-recipe-open" type="button" data-library-recipe="${escapeHtml(recipe.id)}"><span><strong>${escapeHtml(recipe.title)}</strong><small>${escapeHtml([recipe.servings ? `${recipe.servings} servings` : "", ...packNames].filter(Boolean).join(" · ") || source?.title || "Recipe")}</small></span><span class="library-added-state ${added ? "added" : ""}">${added ? "Added" : "View"}</span></button>${libraryAdminMode ? `<button class="library-inline-edit" type="button" data-library-edit="${escapeHtml(recipe.id)}">Edit</button>` : ""}</article>`;
+  }).join("") : `<div class="empty-state"><strong>No library recipes found</strong><p>Try another search or collection.</p></div>`;
+  $("#library-admin-tools").hidden = !(LIBRARY_ADMIN_ENABLED && libraryAdminMode);
+  const adminToggle = $("#library-admin-toggle");
+  adminToggle.hidden = !LIBRARY_ADMIN_ENABLED;
+  adminToggle.classList.toggle("active", libraryAdminMode);
+  adminToggle.textContent = libraryAdminMode ? "Done" : "Admin";
+}
+
+async function openRecipeLibrary() {
+  openOverlay("recipe-library-overlay");
+  $("#library-recipe-list").innerHTML = `<div class="empty-state"><strong>Loading recipes…</strong></div>`;
+  try {
+    await loadRecipeLibrary();
+    renderRecipeLibrary();
+  } catch (error) {
+    $("#library-recipe-list").innerHTML = `<div class="empty-state"><strong>Library unavailable</strong><p>${escapeHtml(error?.message || "Try again when online.")}</p></div>`;
+  }
+}
+
+function renderLibraryRecipeDetail(recipeId) {
+  const recipe = libraryRecipe(recipeId);
+  if (!recipe) return;
+  activeLibraryRecipeId = recipe.id;
+  $("#library-recipe-title").textContent = recipe.title;
+  const source = librarySource(recipe.sourceId);
+  const packNames = recipe.packIds.map(id => libraryPack(id)?.title).filter(Boolean);
+  $("#library-detail-meta").innerHTML = `<div class="library-detail-chips">${recipe.servings ? `<span>${escapeHtml(recipe.servings)} servings</span>` : ""}${recipe.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div>${packNames.length ? `<p>In ${escapeHtml(packNames.join(" · "))}</p>` : ""}${source ? `<p>Source: ${escapeHtml(source.title)} · ${escapeHtml(source.license || "")}</p>` : ""}`;
+  const ingredients = recipe.ingredients.map(item => `<li><strong>${escapeHtml([item.qty, item.unit].filter(Boolean).join(" "))}</strong><span>${escapeHtml(item.name)}</span></li>`).join("");
+  const method = recipe.method.map(step => `<li>${escapeHtml(step)}</li>`).join("");
+  $("#library-detail-body").innerHTML = `<section class="recipe-detail-section"><h4>Ingredients</h4><ul class="recipe-ingredient-list">${ingredients}</ul></section><section class="recipe-detail-section"><h4>Method</h4>${method ? `<ol class="recipe-method-list">${method}</ol>` : `<p class="muted-copy">No method has been added yet.</p>`}</section>${recipe.sourceUrl ? `<a class="recipe-source-link" href="${escapeHtml(recipe.sourceUrl)}" target="_blank" rel="noopener noreferrer">View original source ↗</a>` : ""}`;
+  const existing = addedLibraryMeal(recipe.id);
+  const addButton = $("#library-add-recipe");
+  addButton.textContent = existing ? "Already in my meals" : "Add to my meals";
+  addButton.disabled = !!existing;
+  $("#library-admin-edit").hidden = !(LIBRARY_ADMIN_ENABLED && libraryAdminMode);
+}
+
+function openLibraryRecipe(recipeId) {
+  renderLibraryRecipeDetail(recipeId);
+  openOverlay("library-recipe-overlay");
+}
+
+function addLibraryRecipe(recipeId, options = {}) {
+  const recipe = libraryRecipe(recipeId);
+  if (!recipe) return false;
+  if (addedLibraryMeal(recipe.id)) return false;
+  const now = new Date().toISOString();
+  const ingredients = recipe.ingredients.map(raw => {
+    const item = ensureItem(raw.name, raw.category || guessIngredientCategory(raw.name));
+    return { itemId: item.id, qty: normaliseName(raw.qty), unit: normaliseName(raw.unit) };
+  });
+  data.meals.push({
+    id: uid("meal"),
+    name: recipe.title,
+    ingredients,
+    method: normaliseMethod(recipe.method),
+    tags: [],
+    rating: 0,
+    sourceUrl: recipe.sourceUrl || null,
+    libraryRecipeId: recipe.id,
+    librarySourceId: recipe.sourceId || null,
+    createdAt: now,
+    updatedAt: now,
+    updatedBy: currentMemberId(),
+    deletedAt: null,
+    lastUsedAt: null
+  });
+  touchSharedState(now);
+  if (!options.deferSave) {
+    saveData({ immediateCloud: true });
+    renderAll();
+    renderRecipeLibrary();
+    if (activeLibraryRecipeId === recipe.id) renderLibraryRecipeDetail(recipe.id);
+    showToast(`${recipe.title} added`);
+  }
+  return true;
+}
+
+function addLibraryPack(packId) {
+  const pack = libraryPack(packId);
+  if (!pack) return;
+  const recipes = recipeLibrary.recipes.filter(recipe => recipe.packIds.includes(packId));
+  let added = 0;
+  recipes.forEach(recipe => { if (addLibraryRecipe(recipe.id, { deferSave: true })) added += 1; });
+  if (!added) return showToast("That pack is already added");
+  saveData({ immediateCloud: true });
+  renderAll();
+  renderRecipeLibrary();
+  showToast(`${added} recipe${added === 1 ? "" : "s"} added`);
+}
+
+function saveLibraryDraft() {
+  recipeLibrary.updatedAt = new Date().toISOString();
+  recipeLibrary.libraryVersion = (Number(recipeLibrary.libraryVersion) || 1) + 1;
+  localStorage.setItem(LIBRARY_ADMIN_OVERRIDE_KEY, JSON.stringify(recipeLibrary));
+  recipeLibraryLoaded = true;
+}
+
+function exportRecipeLibrary() {
+  const blob = new Blob([JSON.stringify(recipeLibrary, null, 2) + "\n"], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "recipe-library.json";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast("Library JSON exported");
+}
+
+function openLibraryAdminEditor(recipeId = null) {
+  if (!LIBRARY_ADMIN_ENABLED) return;
+  const recipe = recipeId ? libraryRecipe(recipeId) : null;
+  editingLibraryRecipeId = recipe?.id || null;
+  $("#library-admin-editor-title").textContent = recipe ? "Edit library recipe" : "New library recipe";
+  $("#library-admin-id").value = recipe?.id || "";
+  $("#library-admin-title").value = recipe?.title || "";
+  $("#library-admin-servings").value = recipe?.servings || "";
+  $("#library-admin-source").innerHTML = recipeLibrary.sources.map(source => `<option value="${escapeHtml(source.id)}">${escapeHtml(source.title)}</option>`).join("");
+  $("#library-admin-source").value = recipe?.sourceId || recipeLibrary.sources[0]?.id || "";
+  $("#library-admin-source-url").value = recipe?.sourceUrl || "";
+  $("#library-admin-tags").value = (recipe?.tags || []).join(", ");
+  $("#library-admin-pack-checks").innerHTML = recipeLibrary.packs.map(pack => `<label class="library-pack-check"><input type="checkbox" value="${escapeHtml(pack.id)}" ${(recipe?.packIds || []).includes(pack.id) ? "checked" : ""}><span><strong>${escapeHtml(pack.title)}</strong><small>${escapeHtml(pack.description || "")}</small></span></label>`).join("");
+  $("#library-admin-ingredients").value = (recipe?.ingredients || []).map(item => [item.qty || "", item.unit || "", item.name || "", item.category || "Other"].join(" | ")).join("\n");
+  $("#library-admin-method").value = (recipe?.method || []).join("\n");
+  $("#library-admin-delete").hidden = !recipe;
+  openOverlay("library-admin-editor-overlay");
+}
+
+function saveLibraryAdminRecipe(event) {
+  event.preventDefault();
+  if (!LIBRARY_ADMIN_ENABLED) return;
+  const title = normaliseName($("#library-admin-title").value);
+  if (!title) return;
+  const id = editingLibraryRecipeId || `admin-${keyName(title).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || Date.now().toString(36)}`;
+  const ingredientLines = $("#library-admin-ingredients").value.replace(/\r/g, "").split("\n").map(line => line.trim()).filter(Boolean);
+  const ingredients = ingredientLines.map(line => {
+    const [qty = "", unit = "", name = "", category = ""] = line.split("|").map(part => normaliseName(part));
+    return { name, qty, unit, category: CATEGORIES.includes(category) ? category : guessIngredientCategory(name) };
+  }).filter(item => item.name);
+  const packIds = Array.from($("#library-admin-pack-checks").querySelectorAll('input[type="checkbox"]:checked')).map(input => input.value);
+  const next = {
+    id,
+    title,
+    servings: normaliseName($("#library-admin-servings").value),
+    tags: Array.from(new Set($("#library-admin-tags").value.split(",").map(normaliseName).filter(Boolean))),
+    packIds,
+    sourceId: $("#library-admin-source").value || null,
+    sourceUrl: normaliseName($("#library-admin-source-url").value) || null,
+    ingredients,
+    method: normaliseMethod($("#library-admin-method").value)
+  };
+  const index = recipeLibrary.recipes.findIndex(recipe => recipe.id === id);
+  if (index >= 0) recipeLibrary.recipes[index] = next; else recipeLibrary.recipes.push(next);
+  recipeLibrary = normaliseLibrary(recipeLibrary);
+  saveLibraryDraft();
+  closeOverlay("library-admin-editor-overlay");
+  renderRecipeLibrary();
+  if (activeLibraryRecipeId === id) renderLibraryRecipeDetail(id);
+  showToast("Library draft saved");
+}
+
+function deleteLibraryAdminRecipe() {
+  if (!LIBRARY_ADMIN_ENABLED || !editingLibraryRecipeId) return;
+  const recipe = libraryRecipe(editingLibraryRecipeId);
+  if (!recipe || !confirm(`Delete “${recipe.title}” from the master library draft?`)) return;
+  recipeLibrary.recipes = recipeLibrary.recipes.filter(entry => entry.id !== editingLibraryRecipeId);
+  saveLibraryDraft();
+  closeOverlay("library-admin-editor-overlay");
+  closeOverlay("library-recipe-overlay");
+  renderRecipeLibrary();
+  showToast("Library recipe removed");
+}
+
+function householdMealIngredientText(ingredient) {
+  const item = findItem(ingredient.itemId);
+  return [ingredient.qty, ingredient.unit, item?.name].filter(Boolean).join(" ");
+}
+
+function renderCook() {
+  const container = $("#cook-list");
+  if (!container) return;
+  const withMethod = data.meals.filter(meal => !meal.deletedAt && normaliseMethod(meal.method).length).sort((a, b) => a.name.localeCompare(b.name));
+  const week = getWeek();
+  const plannedIds = [];
+  ["dinner", "lunch"].forEach(slotType => week.slots[slotType].forEach(assignments => assignments.forEach(assignment => {
+    if (assignment.mealId && assignment.mealId !== NO_MEAL && !plannedIds.includes(assignment.mealId)) plannedIds.push(assignment.mealId);
+  })));
+  const planned = plannedIds.map(findMeal).filter(meal => meal && normaliseMethod(meal.method).length);
+  const row = meal => `<button class="cook-card" type="button" data-view-method="${escapeHtml(meal.id)}"><span><strong>${escapeHtml(meal.name)}</strong><small>${meal.method.length} step${meal.method.length === 1 ? "" : "s"} · ${meal.ingredients.length} ingredient${meal.ingredients.length === 1 ? "" : "s"}</small></span><span>›</span></button>`;
+  let html = "";
+  if (planned.length) html += `<div class="cook-section"><div class="cook-section-title">This week</div>${planned.map(row).join("")}</div>`;
+  if (withMethod.length) html += `<div class="cook-section"><div class="cook-section-title">All saved recipes</div>${withMethod.map(row).join("")}</div>`;
+  container.innerHTML = html || `<div class="empty-state"><strong>No cooking methods yet</strong><p>Add a recipe from the Library, import one, or add steps while editing a meal.</p></div>`;
+}
+
+function openMealMethod(mealId) {
+  const meal = findMeal(mealId);
+  if (!meal) return;
+  activeMethodMealId = meal.id;
+  $("#meal-method-title").textContent = meal.name;
+  const ingredients = meal.ingredients.map(ingredient => `<li>${escapeHtml(householdMealIngredientText(ingredient))}</li>`).join("");
+  const method = normaliseMethod(meal.method).map(step => `<li>${escapeHtml(step)}</li>`).join("");
+  $("#meal-method-body").innerHTML = `<section class="recipe-detail-section"><h4>Ingredients</h4><ul class="meal-method-ingredients">${ingredients}</ul></section><section class="recipe-detail-section"><h4>Method</h4>${method ? `<ol class="recipe-method-list">${method}</ol>` : `<p class="muted-copy">No method has been added to this meal.</p>`}</section>${meal.sourceUrl ? `<a class="recipe-source-link" href="${escapeHtml(meal.sourceUrl)}" target="_blank" rel="noopener noreferrer">View source ↗</a>` : ""}`;
+  openOverlay("meal-method-overlay");
 }
 
 function renderMeals() {
@@ -1295,6 +1623,38 @@ function recipeNodeFromJson(value) {
   return null;
 }
 
+function instructionLinesFromValue(value) {
+  const result = [];
+  const walk = entry => {
+    if (!entry) return;
+    if (typeof entry === "string") { const text = normaliseName(entry); if (text) result.push(text); return; }
+    if (Array.isArray(entry)) { entry.forEach(walk); return; }
+    if (typeof entry === "object") {
+      if (entry.text) walk(entry.text);
+      else if (entry.itemListElement) walk(entry.itemListElement);
+      else if (entry.name && String(entry["@type"] || "").toLowerCase().includes("step")) walk(entry.name);
+    }
+  };
+  walk(value);
+  return normaliseMethod(result);
+}
+
+function visibleMethodFromHtml(doc) {
+  const headings = Array.from(doc.querySelectorAll("h1,h2,h3,h4,h5,h6"));
+  const methodHeading = headings.find(node => /^(method|directions|instructions|preparation)\s*:?$/i.test(normaliseName(node.textContent)));
+  if (!methodHeading) return [];
+  const result = [];
+  let node = methodHeading.nextElementSibling;
+  while (node) {
+    if (/^H[1-6]$/.test(node.tagName || "")) break;
+    if (node.matches?.("ol,ul")) node.querySelectorAll(":scope > li").forEach(li => { const text = normaliseName(li.textContent); if (text) result.push(text); });
+    else if (node.matches?.("p")) { const text = normaliseName(node.textContent); if (text) result.push(text); }
+    else node.querySelectorAll?.("li,p").forEach(el => { const text = normaliseName(el.textContent); if (text) result.push(text); });
+    node = node.nextElementSibling;
+  }
+  return normaliseMethod(result);
+}
+
 function recipeFromHtml(html, sourceUrl) {
   const doc = new DOMParser().parseFromString(html, "text/html");
   for (const script of doc.querySelectorAll('script[type="application/ld+json"]')) {
@@ -1307,6 +1667,7 @@ function recipeFromHtml(html, sourceUrl) {
       return {
         name: normaliseName(node.name || doc.querySelector("h1")?.textContent || "Imported recipe"),
         ingredients,
+        method: instructionLinesFromValue(node.recipeInstructions),
         serves: normaliseName(yieldValue || ""),
         sourceUrl
       };
@@ -1353,6 +1714,7 @@ function recipeFromHtml(html, sourceUrl) {
   return {
     name: h1s[0] || metaTitle || "Imported recipe",
     ingredients: Array.from(new Set(ingredients)),
+    method: visibleMethodFromHtml(doc),
     serves: yieldMatch ? normaliseName(yieldMatch[1]) : "",
     sourceUrl
   };
@@ -1406,7 +1768,18 @@ function recipeFromMarkdown(markdown, sourceUrl) {
   }
   flush();
   const ingredients = collected.filter(line => line && !/^nutrition\b/i.test(line));
-  return ingredients.length ? { name, ingredients, serves, sourceUrl } : null;
+  const methodStart = lines.findIndex(line => /^#{1,4}\s+(method|directions|instructions|preparation)\s*:?\s*$/i.test(line.trim()));
+  const method = [];
+  if (methodStart >= 0) {
+    for (let i = methodStart + 1; i < lines.length; i += 1) {
+      const raw = lines[i].trim();
+      if (/^#{1,4}\s+/.test(raw)) break;
+      if (!raw) continue;
+      const text = cleanMarkdownRecipeText(raw.replace(/^\d+[.)]\s+/, "").replace(/^[-*+]\s+/, ""));
+      if (text && !/^(notes?|nutrition|rate this recipe)\b/i.test(text)) method.push(text);
+    }
+  }
+  return ingredients.length ? { name, ingredients, method: normaliseMethod(method), serves, sourceUrl } : null;
 }
 
 function stripIngredientPreparation(value) {
@@ -1868,7 +2241,7 @@ async function importRecipeFromWebsite(event) {
     const ingredients = recipe.ingredients.map(parseRecipeIngredient).filter(item => item.name);
     if (!ingredients.length) throw new Error("No usable ingredients were found on that page.");
     closeOverlay("recipe-import-overlay");
-    openMealEditor(null, { name: recipe.name, ingredients, sourceUrl: recipe.sourceUrl });
+    openMealEditor(null, { name: recipe.name, ingredients, method: recipe.method || [], sourceUrl: recipe.sourceUrl });
     showToast(`Imported ${ingredients.length} shopping item${ingredients.length === 1 ? "" : "s"}${recipe.serves ? ` · ${recipe.serves}` : ""}`);
   } catch (error) {
     setRecipeImportStatus(error?.message || "That recipe could not be imported.", true);
@@ -1895,6 +2268,7 @@ function openMealEditor(mealId = null, prefill = null) {
   $("#ingredient-list").innerHTML = "";
   const ingredients = meal?.ingredients?.length ? meal.ingredients : draft?.ingredients?.length ? draft.ingredients : [{}, {}, {}];
   ingredients.forEach(addIngredientRow);
+  $("#meal-method").value = normaliseMethod(meal?.method || draft?.method || []).join("\n");
   $("#delete-meal").hidden = !meal;
   renderKnownItems();
   openOverlay("meal-editor-overlay");
@@ -1922,9 +2296,10 @@ function saveMealFromForm(event) {
     meal.tags = normaliseMealTags(editingMealTags);
     meal.rating = normaliseMealRating(editingMealRating);
     meal.sourceUrl = editingMealSourceUrl || null;
+    meal.method = normaliseMethod($("#meal-method").value);
     touchRecord(meal, now);
   } else {
-    data.meals.push({ id: uid("meal"), name, ingredients, tags: normaliseMealTags(editingMealTags), rating: normaliseMealRating(editingMealRating), sourceUrl: editingMealSourceUrl || null, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null });
+    data.meals.push({ id: uid("meal"), name, ingredients, method: normaliseMethod($("#meal-method").value), tags: normaliseMealTags(editingMealTags), rating: normaliseMealRating(editingMealRating), sourceUrl: editingMealSourceUrl || null, libraryRecipeId: null, librarySourceId: null, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null });
     touchSharedState(now);
   }
   saveData();
@@ -2942,7 +3317,7 @@ function buildSharedWeekPayload() {
   })));
   const meals = data.meals
     .filter(meal => !meal.deletedAt && usedMealIds.has(meal.id))
-    .map(meal => ({ id: meal.id, name: meal.name, ingredients: clone(meal.ingredients || []), tags: clone(normaliseMealTags(meal.tags)), rating: normaliseMealRating(meal.rating), sourceUrl: meal.sourceUrl || null }));
+    .map(meal => ({ id: meal.id, name: meal.name, ingredients: clone(meal.ingredients || []), method: clone(normaliseMethod(meal.method)), tags: clone(normaliseMealTags(meal.tags)), rating: normaliseMealRating(meal.rating), sourceUrl: meal.sourceUrl || null, libraryRecipeId: meal.libraryRecipeId || null, librarySourceId: meal.librarySourceId || null }));
   const usedItemIds = new Set();
   meals.forEach(meal => meal.ingredients.forEach(ingredient => usedItemIds.add(ingredient.itemId)));
   const items = data.items
@@ -3025,12 +3400,15 @@ async function importSharedWeekFile(file) {
       const sharedTags = normaliseMealTags(sharedMeal.tags || []);
       const sharedRating = normaliseMealRating(sharedMeal.rating || 0);
       if (!meal) {
-        meal = { id: uid("meal"), name, ingredients, tags: sharedTags, rating: sharedRating, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null };
+        meal = { id: uid("meal"), name, ingredients, method: normaliseMethod(sharedMeal.method), tags: sharedTags, rating: sharedRating, sourceUrl: sharedMeal.sourceUrl || null, libraryRecipeId: sharedMeal.libraryRecipeId || null, librarySourceId: sharedMeal.librarySourceId || null, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null };
         data.meals.push(meal);
       } else {
         meal.ingredients = ingredients;
+        meal.method = normaliseMethod(sharedMeal.method);
         meal.tags = sharedTags;
         meal.rating = sharedRating;
+        if (sharedMeal.libraryRecipeId) meal.libraryRecipeId = sharedMeal.libraryRecipeId;
+        if (sharedMeal.librarySourceId) meal.librarySourceId = sharedMeal.librarySourceId;
         touchRecord(meal, now);
       }
       if (sharedMeal.sourceUrl) meal.sourceUrl = sharedMeal.sourceUrl;
@@ -3438,13 +3816,14 @@ function saveWeekSettings(event) {
 }
 
 function switchTab(tab) {
-  if (!['week', 'meals', 'shop'].includes(tab)) tab = 'week';
+  if (!['week', 'meals', 'cook', 'shop'].includes(tab)) tab = 'week';
   $$(".screen").forEach(screen => { const active = screen.dataset.screen === tab; screen.hidden = !active; screen.classList.toggle("active", active); });
   $$(".nav-button").forEach(button => { const active = button.dataset.tab === tab; button.classList.toggle("active", active); if (active) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current"); });
   data.settings.lastTab = tab;
   saveData();
   if (tab === "shop") renderShop();
   if (tab === "meals") renderMeals();
+  if (tab === "cook") renderCook();
   window.scrollTo(0, 0);
 }
 
@@ -3452,6 +3831,7 @@ function renderAll() {
   renderKnownItems();
   renderWeek();
   renderMeals();
+  renderCook();
   renderShop();
   if ($("#household-title")) renderHouseholdSummary();
 }
@@ -3464,6 +3844,16 @@ function changeWeek(offset) {
 
 function bindEvents() {
   document.addEventListener("click", event => {
+    const libraryPackButton = event.target.closest("[data-library-pack]");
+    if (libraryPackButton) { librarySelectedPackId = libraryPackButton.dataset.libraryPack; renderRecipeLibrary(); return; }
+    const libraryRecipeButton = event.target.closest("[data-library-recipe]");
+    if (libraryRecipeButton) return openLibraryRecipe(libraryRecipeButton.dataset.libraryRecipe);
+    const addLibraryPackButton = event.target.closest("[data-add-library-pack]");
+    if (addLibraryPackButton) return addLibraryPack(addLibraryPackButton.dataset.addLibraryPack);
+    const editLibraryButton = event.target.closest("[data-library-edit]");
+    if (editLibraryButton) return openLibraryAdminEditor(editLibraryButton.dataset.libraryEdit);
+    const methodButton = event.target.closest("[data-view-method]");
+    if (methodButton) return openMealMethod(methodButton.dataset.viewMethod);
     const addAlternative = event.target.closest("[data-add-alternative]");
     if (addAlternative) return openMealPicker(addAlternative.dataset.dayIndex, addAlternative.dataset.addAlternative, null, "alternative");
     const slot = event.target.closest("[data-day-index][data-meal-slot]");
@@ -3570,6 +3960,16 @@ function bindEvents() {
   $("#meal-tag-remove").addEventListener("click", toggleMealTagRemoveMode);
   $("#meal-tag-input").addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); addCustomMealTag(); } });
   $("#add-meal").addEventListener("click", () => openMealEditor());
+  $("#browse-library").addEventListener("click", openRecipeLibrary);
+  $("#library-search").addEventListener("input", renderRecipeLibrary);
+  $("#library-admin-toggle").addEventListener("click", () => { libraryAdminMode = !libraryAdminMode; renderRecipeLibrary(); });
+  $("#library-admin-new").addEventListener("click", () => openLibraryAdminEditor());
+  $("#library-admin-export").addEventListener("click", exportRecipeLibrary);
+  $("#library-add-recipe").addEventListener("click", () => activeLibraryRecipeId && addLibraryRecipe(activeLibraryRecipeId));
+  $("#library-admin-edit").addEventListener("click", () => activeLibraryRecipeId && openLibraryAdminEditor(activeLibraryRecipeId));
+  $("#library-admin-form").addEventListener("submit", saveLibraryAdminRecipe);
+  $("#library-admin-delete").addEventListener("click", deleteLibraryAdminRecipe);
+  $("#meal-method-edit").addEventListener("click", () => { const id = activeMethodMealId; closeOverlay("meal-method-overlay"); if (id) openMealEditor(id); });
   $("#import-meal").addEventListener("click", openRecipeImporter);
   $("#recipe-import-form").addEventListener("submit", importRecipeFromWebsite);
   $("#recipe-photo-files").addEventListener("change", selectRecipePhotos);
@@ -3675,7 +4075,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.34", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.41", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {
@@ -3697,6 +4097,7 @@ function init() {
   document.body.appendChild(unitList);
   populateCategorySelect($("#shop-item-category"));
   bindEvents();
+  loadRecipeLibrary().catch(() => {});
   renderAll();
   renderCloudStatus();
   setupInstall();

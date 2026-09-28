@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png?v=icon2">
-  <link rel="stylesheet" href="./style.css?v=1.0.40">
+  <link rel="stylesheet" href="./style.css?v=1.0.41">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -58,6 +58,9 @@
             <p class="screen-subtitle">Reusable favourites for quick planning.</p>
           </div>
           <div class="meal-header-actions">
+            <button class="round-action library-meal-action" id="browse-library" type="button" aria-label="Browse recipe library" title="Recipe library">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H12v16H7.5A2.5 2.5 0 0 0 5 21.5z"/><path d="M19 5.5A2.5 2.5 0 0 0 16.5 3H12v16h4.5A2.5 2.5 0 0 1 19 21.5z"/></svg>
+            </button>
             <button class="round-action import-meal-action" id="import-meal" type="button" aria-label="Import recipe" title="Import recipe">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 15l6-6"/><path d="M8 8.5 5.5 11a4 4 0 0 0 5.7 5.7l2.3-2.3"/><path d="m16 15.5 2.5-2.5a4 4 0 0 0-5.7-5.7l-2.3 2.3"/></svg>
             </button>
@@ -88,6 +91,17 @@
         </div>
 
         <div class="meal-list" id="meal-list"></div>
+      </section>
+
+      <section class="screen" id="cook-screen" data-screen="cook" aria-labelledby="cook-title" hidden>
+        <div class="screen-heading">
+          <div>
+            <p class="screen-kicker">COOK</p>
+            <h2 id="cook-title">Method</h2>
+            <p class="screen-subtitle">Ingredients and cooking steps for saved recipes.</p>
+          </div>
+        </div>
+        <div class="cook-list" id="cook-list"></div>
       </section>
 
       <section class="screen" id="shop-screen" data-screen="shop" aria-labelledby="shop-title" hidden>
@@ -137,6 +151,10 @@
       <button class="nav-button" type="button" data-tab="meals">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3.5"/><path d="M4 4v6M2.5 7h3M20 4v16"/></svg>
         <span>Meals</span>
+      </button>
+      <button class="nav-button" type="button" data-tab="cook">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h12v14H6z"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+        <span>Cook</span>
       </button>
       <button class="nav-button" type="button" data-tab="shop">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1.5 10h-11zM8 8l4-5 4 5"/><path d="M9 12v3M12 12v3M15 12v3"/></svg>
@@ -286,12 +304,116 @@
         </div>
         <div class="ingredient-list" id="ingredient-list"></div>
 
+        <div class="method-editor-heading">
+          <div><strong>Method</strong><small>Optional — put each step on a new line.</small></div>
+        </div>
+        <textarea class="text-input method-textarea" id="meal-method" rows="7" placeholder="1. Prepare the ingredients…&#10;2. Cook…"></textarea>
+
       </form>
 
       <div class="form-actions meal-editor-actions">
         <button class="danger-quiet-button left" id="delete-meal" type="button" hidden>Delete meal</button>
         <button class="primary-button grow" type="submit" form="meal-form">Save meal</button>
       </div>
+    </section>
+  </div>
+
+  <div class="overlay" id="recipe-library-overlay" hidden>
+    <section class="sheet tall-sheet library-sheet" role="dialog" aria-modal="true" aria-labelledby="recipe-library-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">DISCOVER</p>
+          <h3 id="recipe-library-title">Recipe Library</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="recipe-library-overlay" aria-label="Close">×</button>
+      </div>
+      <div class="library-toolbar">
+        <label class="search-field library-search-field">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+          <input id="library-search" type="search" placeholder="Search recipes" autocomplete="off">
+        </label>
+        <button class="library-admin-toggle" id="library-admin-toggle" type="button" hidden>Admin</button>
+      </div>
+      <div class="library-admin-tools" id="library-admin-tools" hidden>
+        <button class="secondary-button" id="library-admin-new" type="button">New recipe</button>
+        <button class="secondary-button" id="library-admin-export" type="button">Export JSON</button>
+      </div>
+      <div class="library-pack-strip" id="library-pack-strip"></div>
+      <div class="library-pack-summary" id="library-pack-summary" hidden></div>
+      <div class="library-recipe-list" id="library-recipe-list"></div>
+    </section>
+  </div>
+
+  <div class="overlay" id="library-recipe-overlay" hidden>
+    <section class="sheet tall-sheet library-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="library-recipe-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">RECIPE</p>
+          <h3 id="library-recipe-title">Recipe</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="library-recipe-overlay" aria-label="Close">×</button>
+      </div>
+      <div class="library-detail-meta" id="library-detail-meta"></div>
+      <div class="library-detail-body" id="library-detail-body"></div>
+      <div class="form-actions library-detail-actions">
+        <button class="secondary-button left" id="library-admin-edit" type="button" hidden>Edit library recipe</button>
+        <button class="primary-button grow" id="library-add-recipe" type="button">Add to my meals</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="overlay" id="library-admin-editor-overlay" hidden>
+    <section class="sheet tall-sheet library-admin-sheet" role="dialog" aria-modal="true" aria-labelledby="library-admin-editor-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">ADMIN</p>
+          <h3 id="library-admin-editor-title">Edit library recipe</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="library-admin-editor-overlay" aria-label="Close">×</button>
+      </div>
+      <form id="library-admin-form">
+        <input type="hidden" id="library-admin-id">
+        <label class="field-label" for="library-admin-title">Recipe name</label>
+        <input class="text-input" id="library-admin-title" type="text" required>
+        <div class="two-field-row">
+          <label><span class="field-label">Servings</span><input class="text-input" id="library-admin-servings" type="text"></label>
+          <label><span class="field-label">Source</span><select class="text-input select-input" id="library-admin-source"></select></label>
+        </div>
+        <label class="field-label spaced-label" for="library-admin-source-url">Source URL</label>
+        <input class="text-input" id="library-admin-source-url" type="url" inputmode="url">
+        <label class="field-label spaced-label" for="library-admin-tags">Library tags</label>
+        <input class="text-input" id="library-admin-tags" type="text" placeholder="Chicken, Family, Quick">
+        <label class="field-label spaced-label">Packs</label>
+        <div class="library-admin-pack-checks" id="library-admin-pack-checks"></div>
+        <label class="field-label spaced-label" for="library-admin-ingredients">Ingredients</label>
+        <p class="settings-note">One per line: quantity | unit | ingredient | shopping category</p>
+        <textarea class="text-input library-admin-textarea" id="library-admin-ingredients" rows="8"></textarea>
+        <label class="field-label spaced-label" for="library-admin-method">Method</label>
+        <p class="settings-note">One step per line.</p>
+        <textarea class="text-input library-admin-textarea" id="library-admin-method" rows="8"></textarea>
+      </form>
+      <div class="form-actions library-admin-actions">
+        <button class="danger-quiet-button left" id="library-admin-delete" type="button" hidden>Delete recipe</button>
+        <button class="primary-button grow" type="submit" form="library-admin-form">Save library draft</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="overlay" id="meal-method-overlay" hidden>
+    <section class="sheet tall-sheet method-sheet" role="dialog" aria-modal="true" aria-labelledby="meal-method-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">COOK</p>
+          <h3 id="meal-method-title">Method</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="meal-method-overlay" aria-label="Close">×</button>
+      </div>
+      <div class="method-detail-body" id="meal-method-body"></div>
+      <button class="secondary-button full-width" id="meal-method-edit" type="button">Edit meal</button>
     </section>
   </div>
 
@@ -667,7 +789,7 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.40"></script>
-  <script type="module" src="./firebase-sync.js?v=1.0.40"></script>
+  <script src="./app.js?v=1.0.41"></script>
+  <script type="module" src="./firebase-sync.js?v=1.0.41"></script>
 </body>
 </html>
