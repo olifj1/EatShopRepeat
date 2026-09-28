@@ -1,7 +1,7 @@
-# MealPlanner v1.0.45
+# MealPlanner v1.0.46
 
-Adds editable people assignments to planned split meals. Opening an assigned meal now shows its people at the bottom; Remove people moves selected people to the other meal automatically.
+Small iPhone layout polish. The PWA status-bar/overscroll background now matches the warm page background instead of showing a darker strip when the screen is pulled down.
 
-Adds reusable days. Every day card now has Save, Load and Clear controls. Saved days retain lunch, dinner and people assignments and sync with the household.
+The bottom navigation safe-area spacing is also slightly reduced so the Week, Meals and Shop controls sit a little lower while retaining room for the iPhone home indicator.
 
-Firebase transport code and the central recipe library are unchanged.
+No meal-planning, recipe-library or Firebase sync behaviour changed in this release.

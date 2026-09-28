@@ -17,13 +17,14 @@
   --gold: #c58a50;
   --danger: #aa594d;
   --nav-height: 74px;
+  --page-top: #f3ece7;
 }
 
 * { box-sizing: border-box; }
 html {
   min-height: 100%;
   overflow-x: hidden;
-  background: var(--gh-bg);
+  background: var(--page-top);
   -webkit-text-size-adjust: 100%;
   touch-action: pan-y manipulation;
 }
@@ -335,7 +336,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
   bottom: 0;
   transform: translateX(-50%);
   width: min(100%, 680px);
-  padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+  padding: 6px 10px max(18px, calc(env(safe-area-inset-bottom) - 6px));
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
@@ -1402,3 +1403,6 @@ body.modal-open { overflow: hidden; }
 .picker-clear-actions .picker-remove-people-button[hidden] { display: none; }
 .picker-clear-actions:has(.picker-no-meal-button[hidden]):has(.picker-remove-people-button:not([hidden])) { grid-template-columns: 1fr 1fr; }
 .picker-clear-actions:has(.picker-no-meal-button[hidden]):has(.picker-remove-people-button[hidden]) { grid-template-columns: 1fr; }
+
+
+/* v1.0.46 — match iOS status/overscroll colour and lower bottom navigation slightly */
