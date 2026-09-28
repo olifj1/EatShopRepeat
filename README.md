@@ -1,7 +1,7 @@
-# MealPlanner v1.0.44
+# MealPlanner v1.0.45
 
-Removes the separate Cook tab. Meals that contain a cooking method keep their Cook button, which now opens the recipe method directly as a popup from the Meals screen.
+Adds editable people assignments to planned split meals. Opening an assigned meal now shows its people at the bottom; Remove people moves selected people to the other meal automatically.
 
-The main navigation is back to Week, Meals and Shop. Existing users whose last open tab was Cook are safely returned to Week after updating.
+Adds reusable days. Every day card now has Save, Load and Clear controls. Saved days retain lunch, dinner and people assignments and sync with the household.
 
-No Firebase sync or recipe-library data changes in this release.
+Firebase transport code and the central recipe library are unchanged.

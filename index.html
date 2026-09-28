@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png?v=icon2">
-  <link rel="stylesheet" href="./style.css?v=1.0.44">
+  <link rel="stylesheet" href="./style.css?v=1.0.45">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -177,7 +177,12 @@
       </div>
       <div class="picker-tag-filters" id="picker-tag-filters" aria-label="Filter meal choices by tag"></div>
       <div class="picker-list" id="picker-list"></div>
+      <div class="picker-assignment-footer" id="picker-assignment-footer" hidden>
+        <span class="picker-assignment-label">People</span>
+        <div class="picker-assignment-avatars" id="picker-assignment-avatars"></div>
+      </div>
       <div class="picker-clear-actions">
+        <button class="secondary-button picker-remove-people-button" id="remove-people" type="button" hidden>Remove people</button>
         <button class="secondary-button picker-clear-button" id="clear-day" type="button">Clear dinner</button>
         <button class="danger-quiet-button picker-no-meal-button" id="no-dinner" type="button">No dinner / eating out</button>
       </div>
@@ -552,6 +557,40 @@
     </section>
   </div>
 
+  <div class="overlay" id="save-day-overlay" hidden>
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="save-day-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">SAVE DAY</p>
+          <h3 id="save-day-title">Save for reuse</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="save-day-overlay" aria-label="Close">×</button>
+      </div>
+      <form id="save-day-form">
+        <p class="sheet-copy">Save lunch, dinner and people assignments from <strong id="save-day-date"></strong> as a reusable day.</p>
+        <label class="field-label" for="saved-day-name">Name</label>
+        <input class="text-input" id="saved-day-name" type="text" maxlength="80" autocomplete="off" required>
+        <button class="primary-button full-width" type="submit">Save day</button>
+      </form>
+    </section>
+  </div>
+
+  <div class="overlay" id="saved-days-overlay" hidden>
+    <section class="sheet tall-sheet" role="dialog" aria-modal="true" aria-labelledby="saved-days-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="screen-kicker">REUSE DAY</p>
+          <h3 id="saved-days-title">Saved days</h3>
+        </div>
+        <button class="sheet-close" type="button" data-close="saved-days-overlay" aria-label="Close">×</button>
+      </div>
+      <p class="sheet-copy">Use a saved day on <strong id="saved-days-target"></strong>. Lunch, dinner and people assignments are restored.</p>
+      <div class="saved-week-list" id="saved-day-list"></div>
+    </section>
+  </div>
+
   <div class="overlay" id="move-week-overlay" hidden>
     <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="move-week-title">
       <div class="sheet-handle" aria-hidden="true"></div>
@@ -774,7 +813,7 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.44"></script>
-  <script type="module" src="./firebase-sync.js?v=1.0.44"></script>
+  <script src="./app.js?v=1.0.45"></script>
+  <script type="module" src="./firebase-sync.js?v=1.0.45"></script>
 </body>
 </html>

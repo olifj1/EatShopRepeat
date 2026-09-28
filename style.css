@@ -1349,3 +1349,56 @@ body.modal-open { overflow: hidden; }
 .meal-card-actions { flex:0 0 auto; display:flex; align-items:center; gap:6px; }
 .meal-card .meal-cook-button { width:auto; min-width:52px; height:40px; padding:0 11px; border-radius:13px; font-size:11px; line-height:1; font-weight:820; color:#985345; background:var(--meal-soft); border-color:color-mix(in srgb, var(--meal) 34%, transparent); }
 .meal-card .meal-more-button { width:40px; height:40px; padding:0; font-size:18px; }
+
+/* v1.0.45 — reusable days and editable meal audiences */
+.day-actions {
+  grid-column: 2;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 1px 3px 0 0;
+}
+.day-actions button {
+  min-height: 25px;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--gh-muted);
+  font-size: 9px;
+  font-weight: 820;
+}
+.day-actions button:active:not(:disabled) { background: rgba(37,43,51,.05); }
+.day-actions button:disabled { opacity: .34; }
+.day-actions button[data-clear-day-plan] { color: color-mix(in srgb, var(--danger) 76%, var(--gh-muted)); }
+
+.picker-assignment-footer {
+  flex: 0 0 auto;
+  min-height: 43px;
+  margin-top: 8px;
+  padding: 6px 9px;
+  border: 1px solid rgba(37,43,51,.1);
+  border-radius: 13px;
+  background: rgba(247,241,235,.48);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.picker-assignment-footer[hidden] { display: none; }
+.picker-assignment-label {
+  flex: 0 0 auto;
+  color: var(--gh-muted);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.picker-assignment-avatars { display: flex; align-items: center; min-width: 0; }
+.picker-assignment-avatars .member-avatar { width: 30px; height: 30px; font-size: 9px; margin-left: -4px; }
+.picker-assignment-avatars .member-avatar:first-child { margin-left: 0; }
+.picker-clear-actions .picker-remove-people-button { min-height: 44px; margin-top: 0; }
+.picker-clear-actions .picker-remove-people-button[hidden] { display: none; }
+.picker-clear-actions:has(.picker-no-meal-button[hidden]):has(.picker-remove-people-button:not([hidden])) { grid-template-columns: 1fr 1fr; }
+.picker-clear-actions:has(.picker-no-meal-button[hidden]):has(.picker-remove-people-button[hidden]) { grid-template-columns: 1fr; }

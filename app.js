@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.44";
+const APP_VERSION = "1.0.45";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -17,7 +17,7 @@ const UNITS = ["", "pack", "packs", "g", "kg", "ml", "l", "pint", "pints", "tbsp
 const NO_MEAL = "__none__";
 const DEFAULT_WEEK_START_DAY = 5; // Friday
 const BUNDLED_CONTENT_VERSION = 1;
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 const MEMBER_COLORS = ["sage", "terracotta", "blue", "gold", "rose", "plum"];
 const DEFAULT_MEAL_TAGS = ["Kids", "Adults", "Sunday", "Quick", "Lunch", "Vegetarian", "Treat"];
 const RECIPE_LIBRARY_URL = "./recipe-library.json";
@@ -222,6 +222,27 @@ function normaliseSavedWeek(savedWeek, index = 0) {
   };
 }
 
+function normaliseSavedDay(savedDay, index = 0) {
+  if (!savedDay || typeof savedDay !== "object") return null;
+  const now = new Date().toISOString();
+  const stamp = savedDay.updatedAt || savedDay.createdAt || now;
+  const normalisePeriod = rawAssignments => (Array.isArray(rawAssignments) ? rawAssignments : [])
+    .map(raw => normaliseAssignment(raw, stamp))
+    .filter(Boolean);
+  return {
+    id: savedDay.id || uid("savedday"),
+    name: normaliseName(savedDay.name) || `Saved day ${index + 1}`,
+    slots: {
+      dinner: normalisePeriod(savedDay.slots?.dinner),
+      lunch: normalisePeriod(savedDay.slots?.lunch)
+    },
+    createdAt: savedDay.createdAt || stamp,
+    updatedAt: stamp,
+    updatedBy: savedDay.updatedBy || null,
+    deletedAt: savedDay.deletedAt || null
+  };
+}
+
 function syncLegacyWeekSlots(week) {
   const primary = assignments => {
     if (!assignments?.length) return null;
@@ -411,6 +432,7 @@ function seedData() {
     meals,
     weeks: {},
     savedWeeks: [],
+    savedDays: [],
     settings: { hideChecked: false, lastTab: "week", weekStartDay: DEFAULT_WEEK_START_DAY, currentMemberId: null }
   };
   return applyBundledContent(seeded);
@@ -533,6 +555,9 @@ function prepareDataObject(parsed) {
   clean.savedWeeks = Array.isArray(clean.savedWeeks)
     ? clean.savedWeeks.map(normaliseSavedWeek).filter(Boolean)
     : [];
+  clean.savedDays = Array.isArray(clean.savedDays)
+    ? clean.savedDays.map(normaliseSavedDay).filter(Boolean)
+    : [];
 
   clean.items = clean.items.map(item => ({
     ...item,
@@ -611,6 +636,7 @@ let libraryAdminMode = false;
 let activeLibraryRecipeId = null;
 let editingLibraryRecipeId = null;
 let activeMethodMealId = null;
+let dayTemplateTargetIndex = null;
 
 function currentMemberId() {
   return data?.settings?.currentMemberId || null;
@@ -677,6 +703,8 @@ function findItem(id) { return data.items.find(item => item.id === id && !item.d
 function findItemByName(name) { const key = keyName(name); return data.items.find(item => !item.deletedAt && keyName(item.name) === key) || null; }
 function activeSavedWeeks(source = data) { return (source?.savedWeeks || []).filter(savedWeek => !savedWeek.deletedAt); }
 function findSavedWeek(id) { return activeSavedWeeks().find(savedWeek => savedWeek.id === id) || null; }
+function activeSavedDays(source = data) { return (source?.savedDays || []).filter(savedDay => !savedDay.deletedAt); }
+function findSavedDay(id) { return activeSavedDays().find(savedDay => savedDay.id === id) || null; }
 
 function ensureItem(name, category = "Other", regular = false) {
   const clean = normaliseName(name);
@@ -856,11 +884,17 @@ function renderWeek() {
     const date = addDays(selectedWeekStart, index);
     const dinner = getSlotAssignments(week, "dinner", index);
     const lunch = getSlotAssignments(week, "lunch", index);
+    const hasPlan = dinner.length > 0 || lunch.length > 0;
     return `<article class="day-card ${localDateKey(date) === todayKey ? "today" : ""}">
       <div class="day-meta"><strong>${escapeHtml(formatDay(date))}</strong><span>${escapeHtml(formatDateShort(date))}</span></div>
       <div class="day-slots">
         ${mealPeriodMarkup("dinner", index, dinner)}
         ${mealPeriodMarkup("lunch", index, lunch)}
+      </div>
+      <div class="day-actions" aria-label="${escapeHtml(formatDayLong(date))} actions">
+        <button type="button" data-save-day="${index}"${hasPlan ? "" : " disabled"}>Save</button>
+        <button type="button" data-load-day="${index}">Load</button>
+        <button type="button" data-clear-day-plan="${index}"${hasPlan ? "" : " disabled"}>Clear</button>
       </div>
     </article>`;
   }).join("");
@@ -1330,16 +1364,77 @@ function openMealPicker(dayIndex, slotType = "dinner", assignmentId = null, mode
 
   $("#clear-day").hidden = pickerMode === "alternative";
   if (pickerMode !== "alternative") {
-    $("#clear-day").textContent = assignmentIndex > 0
-      ? "Remove alternative meal"
+    $("#clear-day").textContent = assignments.length > 1 && assignmentIndex >= 0
+      ? "Remove meal"
       : (pickerSlotType === "lunch" ? "Remove lunch" : "Clear dinner");
   }
   $("#no-dinner").hidden = pickerMode === "alternative" || pickerSlotType === "lunch" || assignments.length > 1 || assignmentIndex > 0;
+  renderPickerAssignmentFooter(assignments, assignment, assignmentIndex);
   $("#picker-search").value = "";
   pickerTagFilters = [];
   pickerRatingFilter = "any";
   renderPicker();
   openOverlay("meal-picker-overlay");
+}
+
+function renderPickerAssignmentFooter(assignments, assignment, assignmentIndex) {
+  const footer = $("#picker-assignment-footer");
+  const avatars = $("#picker-assignment-avatars");
+  const removePeople = $("#remove-people");
+  if (!footer || !avatars || !removePeople) return;
+  const validAssignment = !!assignment && assignment.mealId !== NO_MEAL;
+  footer.hidden = !validAssignment || pickerMode === "alternative";
+  if (!validAssignment || pickerMode === "alternative") {
+    avatars.innerHTML = "";
+    removePeople.hidden = true;
+    return;
+  }
+  const members = assignmentMemberIds(assignment).map(findMember).filter(Boolean);
+  avatars.innerHTML = members.map(member => memberAvatar(member)).join("");
+  removePeople.hidden = assignments.length < 2 || assignmentIndex < 0 || !members.length;
+}
+
+function movePeopleBetweenAssignments(assignments, assignmentId, memberIds, now) {
+  const sourceIndex = assignments.findIndex(assignment => assignment.id === assignmentId);
+  if (sourceIndex < 0 || assignments.length < 2) return assignments;
+  const targetIndex = sourceIndex === 0 ? 1 : 0;
+  const source = assignments[sourceIndex];
+  const target = assignments[targetIndex];
+  if (!target) return assignments;
+  const sourceIds = assignmentMemberIds(source);
+  const selected = new Set((memberIds || []).filter(id => sourceIds.includes(id)));
+  if (!selected.size) return assignments;
+  const remainingSourceIds = sourceIds.filter(id => !selected.has(id));
+  const mergedTargetIds = Array.from(new Set([...assignmentMemberIds(target), ...selected]));
+  const next = assignments.map(assignment => ({ ...assignment }));
+  next[targetIndex] = {
+    ...next[targetIndex],
+    memberIds: normalisedAudienceIds(mergedTargetIds),
+    updatedAt: now,
+    updatedBy: currentMemberId()
+  };
+  if (remainingSourceIds.length) {
+    next[sourceIndex] = {
+      ...next[sourceIndex],
+      memberIds: normalisedAudienceIds(remainingSourceIds),
+      updatedAt: now,
+      updatedBy: currentMemberId()
+    };
+  } else {
+    next.splice(sourceIndex, 1);
+  }
+  return normaliseSplitSlot(next);
+}
+
+function openRemovePeopleFromMeal() {
+  if (!pickerAssignmentId) return;
+  const week = getWeek();
+  const assignments = getSlotAssignments(week, pickerSlotType, pickerDayIndex);
+  const sourceIndex = assignments.findIndex(assignment => assignment.id === pickerAssignmentId);
+  if (sourceIndex < 0 || assignments.length < 2) return;
+  const assignment = assignments[sourceIndex];
+  closeOverlay("meal-picker-overlay");
+  openSplitMembers(pickerDayIndex, pickerSlotType, assignment.id, "remove", []);
 }
 
 function normaliseSplitSlot(assignments) {
@@ -1432,9 +1527,16 @@ function chooseMealForDay(mealId) {
   if (!mealId) {
     if (pickerAssignmentId) {
       const assignmentIndex = assignments.findIndex(assignment => assignment.id === pickerAssignmentId);
-      week.slots[pickerSlotType][pickerDayIndex] = assignmentIndex > 0
-        ? removeAlternativeAndRejoinMain(assignments, pickerAssignmentId, now)
-        : [];
+      if (assignmentIndex >= 0 && assignments.length > 1) {
+        week.slots[pickerSlotType][pickerDayIndex] = movePeopleBetweenAssignments(
+          assignments,
+          pickerAssignmentId,
+          assignmentMemberIds(assignments[assignmentIndex]),
+          now
+        );
+      } else {
+        week.slots[pickerSlotType][pickerDayIndex] = [];
+      }
     } else {
       week.slots[pickerSlotType][pickerDayIndex] = [];
     }
@@ -2726,7 +2828,7 @@ function openSplitMembers(dayIndex, slotType, assignmentId = null, returnMode = 
   splitDayIndex = Number(dayIndex);
   splitSlotType = slotType === "lunch" ? "lunch" : "dinner";
   splitAssignmentId = assignmentId || null;
-  splitReturnMode = ["picker", "alternative"].includes(returnMode) ? returnMode : "card";
+  splitReturnMode = ["picker", "alternative", "remove"].includes(returnMode) ? returnMode : "card";
 
   const week = getWeek();
   const assignments = getSlotAssignments(week, splitSlotType, splitDayIndex);
@@ -2739,6 +2841,20 @@ function openSplitMembers(dayIndex, slotType, assignmentId = null, returnMode = 
     $("#split-members-title").textContent = meal ? `Who is having ${meal.name}?` : "Who is having this meal?";
     $("#split-members-overlay .sheet-copy").textContent = "Choose one or more people. They’ll move from their current meal to this alternative.";
     $("#split-member-list").innerHTML = members.map(member => `<button type="button" class="split-member-choice" data-split-member="${escapeHtml(member.id)}">${memberAvatar(member)}<span><strong>${escapeHtml(member.name)}</strong><small>${member.role === "child" ? "Child" : "Adult"}</small></span><span class="member-check">✓</span></button>`).join("");
+  } else if (splitReturnMode === "remove") {
+    const sourceIndex = assignments.findIndex(entry => entry.id === splitAssignmentId);
+    const source = sourceIndex >= 0 ? assignments[sourceIndex] : null;
+    const target = sourceIndex === 0 ? assignments[1] : assignments[0];
+    const sourceMeal = source ? findMeal(source.mealId) : null;
+    const targetMeal = target ? findMeal(target.mealId) : null;
+    const sourceMembers = source ? assignmentMemberIds(source).map(findMember).filter(Boolean) : [];
+    pendingAudienceAll = false;
+    pendingSplitMemberIds = [];
+    $("#split-members-title").textContent = sourceMeal ? `Remove people from ${sourceMeal.name}` : "Remove people";
+    $("#split-members-overlay .sheet-copy").textContent = targetMeal
+      ? `Choose who to move. They’ll be added to ${targetMeal.name}.`
+      : "Choose who to move to the other meal.";
+    $("#split-member-list").innerHTML = sourceMembers.map(member => `<button type="button" class="split-member-choice" data-split-member="${escapeHtml(member.id)}">${memberAvatar(member)}<span><strong>${escapeHtml(member.name)}</strong><small>${member.role === "child" ? "Child" : "Adult"}</small></span><span class="member-check">✓</span></button>`).join("");
   } else {
     const sourceIds = initialIds !== undefined
       ? normalisedAudienceIds(initialIds)
@@ -2763,14 +2879,14 @@ function openSplitMembers(dayIndex, slotType, assignmentId = null, returnMode = 
 }
 
 function selectAllSplitMembers() {
-  if (splitReturnMode === "alternative") return;
+  if (splitReturnMode === "alternative" || splitReturnMode === "remove") return;
   pendingAudienceAll = true;
   pendingSplitMemberIds = [];
   updateSplitMemberSelection();
 }
 
 function toggleSplitMember(memberId) {
-  if (splitReturnMode === "alternative") {
+  if (splitReturnMode === "alternative" || splitReturnMode === "remove") {
     const set = new Set(pendingSplitMemberIds);
     if (set.has(memberId)) set.delete(memberId); else set.add(memberId);
     pendingSplitMemberIds = Array.from(set);
@@ -2812,6 +2928,11 @@ function updateSplitMemberButton() {
     button.textContent = count ? `Use for ${count} ${count === 1 ? "person" : "people"}` : "Choose who is having it";
     return;
   }
+  if (splitReturnMode === "remove") {
+    button.disabled = count < 1;
+    button.textContent = count ? `Move ${count} ${count === 1 ? "person" : "people"}` : "Choose people to move";
+    return;
+  }
   button.disabled = count < 1;
   button.textContent = "Done";
 }
@@ -2843,6 +2964,26 @@ function continueSplitMeal() {
     pickerMode = "replace";
     closeOverlay("split-members-overlay");
     renderAll();
+    return;
+  }
+
+  if (splitReturnMode === "remove") {
+    if (!pendingSplitMemberIds.length) return;
+    const week = getWeek();
+    const assignments = getSlotAssignments(week, splitSlotType, splitDayIndex);
+    const now = new Date().toISOString();
+    week.slots[splitSlotType][splitDayIndex] = movePeopleBetweenAssignments(
+      assignments,
+      splitAssignmentId,
+      pendingSplitMemberIds,
+      now
+    );
+    touchWeekField(week, splitSlotType, splitDayIndex, now);
+    syncLegacyWeekSlots(week);
+    saveData({ immediateCloud: true });
+    closeOverlay("split-members-overlay");
+    renderAll();
+    showToast("People moved");
     return;
   }
 
@@ -2886,7 +3027,8 @@ function sharedDataSignature() {
     items: data.items,
     meals: data.meals,
     weeks: data.weeks,
-    savedWeeks: data.savedWeeks || []
+    savedWeeks: data.savedWeeks || [],
+    savedDays: data.savedDays || []
   });
 }
 
@@ -3162,7 +3304,8 @@ function buildHouseholdPayload() {
     items: clone(data.items),
     meals: clone(data.meals),
     weeks: clone(data.weeks),
-    savedWeeks: clone(data.savedWeeks || [])
+    savedWeeks: clone(data.savedWeeks || []),
+    savedDays: clone(data.savedDays || [])
   };
 }
 
@@ -3209,6 +3352,7 @@ function adoptHouseholdPayload(payload) {
     meals: payload.meals,
     weeks: payload.weeks,
     savedWeeks: payload.savedWeeks || [],
+    savedDays: payload.savedDays || [],
     settings: { ...data.settings, currentMemberId: null, weekStartDay: payload.household.weekStartDay }
   });
   data.household = prepared.household;
@@ -3216,6 +3360,7 @@ function adoptHouseholdPayload(payload) {
   data.meals = prepared.meals;
   data.weeks = prepared.weeks;
   data.savedWeeks = prepared.savedWeeks;
+  data.savedDays = prepared.savedDays;
   data.settings.weekStartDay = prepared.household.weekStartDay;
   data.settings.currentMemberId = null;
 }
@@ -3267,6 +3412,7 @@ function mergeHouseholdPayload(payload) {
   data.items = mergeRecordArray(data.items, payload.items || []);
   data.meals = mergeRecordArray(data.meals, payload.meals || []);
   data.savedWeeks = mergeRecordArray(data.savedWeeks || [], (payload.savedWeeks || []).map(normaliseSavedWeek).filter(Boolean));
+  data.savedDays = mergeRecordArray(data.savedDays || [], (payload.savedDays || []).map(normaliseSavedDay).filter(Boolean));
   Object.entries(payload.weeks || {}).forEach(([key, incomingWeek]) => {
     const localWeek = data.weeks[key];
     data.weeks[key] = localWeek ? mergeWeekRecord(localWeek, incomingWeek, key) : normaliseWeek(clone(incomingWeek), key);
@@ -3664,6 +3810,166 @@ function deleteSavedWeek(id) {
   showToast("Saved week deleted");
 }
 
+function dayHasReusableContent(week, dayIndex) {
+  return getSlotAssignments(week, "dinner", dayIndex).length > 0 || getSlotAssignments(week, "lunch", dayIndex).length > 0;
+}
+
+function assignmentMealNames(assignments) {
+  return (assignments || []).map(assignment => {
+    if (assignment.mealId === NO_MEAL) return "No meal";
+    return findMeal(assignment.mealId)?.name || "";
+  }).filter(Boolean);
+}
+
+function defaultSavedDayName(dayIndex) {
+  const week = getWeek();
+  const date = addDays(selectedWeekStart, dayIndex);
+  const dinnerNames = assignmentMealNames(getSlotAssignments(week, "dinner", dayIndex));
+  const lunchNames = assignmentMealNames(getSlotAssignments(week, "lunch", dayIndex));
+  const names = dinnerNames.length ? dinnerNames : lunchNames;
+  return names.length ? `${formatDayLong(date)} · ${names.join(" / ")}` : `${formatDayLong(date)} · ${formatDateShort(date)}`;
+}
+
+function openSaveDay(dayIndex) {
+  const index = Number(dayIndex);
+  const week = getWeek();
+  if (!dayHasReusableContent(week, index)) {
+    showToast("There is nothing to save for this day");
+    return;
+  }
+  dayTemplateTargetIndex = index;
+  $("#saved-day-name").value = defaultSavedDayName(index);
+  $("#save-day-date").textContent = `${formatDayLong(addDays(selectedWeekStart, index))} ${formatDateShort(addDays(selectedWeekStart, index))}`;
+  openOverlay("save-day-overlay");
+  requestAnimationFrame(() => $("#saved-day-name")?.select());
+}
+
+function saveCurrentDayTemplate(event) {
+  event.preventDefault();
+  const index = Number(dayTemplateTargetIndex);
+  if (!Number.isInteger(index) || index < 0 || index > 6) return;
+  const week = getWeek();
+  if (!dayHasReusableContent(week, index)) {
+    closeOverlay("save-day-overlay");
+    showToast("There is nothing to save for this day");
+    return;
+  }
+  const stamp = new Date().toISOString();
+  const savedDay = normaliseSavedDay({
+    id: uid("savedday"),
+    name: normaliseName($("#saved-day-name").value) || defaultSavedDayName(index),
+    slots: {
+      dinner: clone(getSlotAssignments(week, "dinner", index)),
+      lunch: clone(getSlotAssignments(week, "lunch", index))
+    },
+    createdAt: stamp,
+    updatedAt: stamp,
+    updatedBy: currentMemberId()
+  }, (data.savedDays || []).length);
+  if (!Array.isArray(data.savedDays)) data.savedDays = [];
+  data.savedDays.push(savedDay);
+  touchSharedState(stamp, savedDay.updatedBy);
+  saveData({ immediateCloud: true });
+  closeOverlay("save-day-overlay");
+  showToast("Day saved");
+}
+
+function savedDaySummary(savedDay) {
+  const dinnerNames = assignmentMealNames(savedDay.slots.dinner);
+  const lunchNames = assignmentMealNames(savedDay.slots.lunch);
+  const parts = [];
+  if (dinnerNames.length) parts.push(`Dinner: ${dinnerNames.join(" / ")}`);
+  if (lunchNames.length) parts.push(`Lunch: ${lunchNames.join(" / ")}`);
+  return parts.join(" · ") || "Empty day";
+}
+
+function renderSavedDays() {
+  const list = $("#saved-day-list");
+  if (!list) return;
+  const index = Number(dayTemplateTargetIndex);
+  const date = addDays(selectedWeekStart, Number.isInteger(index) ? index : 0);
+  $("#saved-days-target").textContent = `${formatDayLong(date)} ${formatDateShort(date)}`;
+  const saved = activeSavedDays().slice().sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+  if (!saved.length) {
+    list.innerHTML = `<div class="empty-state compact-empty"><strong>No saved days yet</strong><span>Save a day you like, then reuse it here.</span></div>`;
+    return;
+  }
+  list.innerHTML = saved.map(savedDay => `
+    <article class="saved-week-card">
+      <div class="saved-week-copy">
+        <strong>${escapeHtml(savedDay.name)}</strong>
+        <small>${escapeHtml(savedDaySummary(savedDay))}</small>
+      </div>
+      <div class="saved-week-actions">
+        <button class="secondary-button saved-week-use" type="button" data-use-saved-day="${savedDay.id}">Use</button>
+        <button class="saved-week-delete" type="button" data-delete-saved-day="${savedDay.id}" aria-label="Delete ${escapeHtml(savedDay.name)}">Delete</button>
+      </div>
+    </article>`).join("");
+}
+
+function openSavedDays(dayIndex) {
+  dayTemplateTargetIndex = Number(dayIndex);
+  renderSavedDays();
+  openOverlay("saved-days-overlay");
+}
+
+function applySavedDay(savedDay, dayIndex) {
+  const week = getWeek();
+  const stamp = new Date().toISOString();
+  const validAssignments = assignments => freshAssignments((assignments || []).filter(assignment => assignment.mealId === NO_MEAL || !!findMeal(assignment.mealId)), stamp);
+  week.slots.dinner[dayIndex] = validAssignments(savedDay.slots.dinner);
+  week.slots.lunch[dayIndex] = validAssignments(savedDay.slots.lunch);
+  touchWeekField(week, "dinner", dayIndex, stamp);
+  touchWeekField(week, "lunch", dayIndex, stamp);
+  syncLegacyWeekSlots(week);
+}
+
+function useSavedDay(id) {
+  const savedDay = findSavedDay(id);
+  const index = Number(dayTemplateTargetIndex);
+  if (!savedDay || !Number.isInteger(index) || index < 0 || index > 6) return;
+  const week = getWeek();
+  const date = addDays(selectedWeekStart, index);
+  if (dayHasReusableContent(week, index) && !confirm(`Replace the meals for ${formatDayLong(date)} ${formatDateShort(date)} with “${savedDay.name}”?`)) return;
+  applySavedDay(savedDay, index);
+  saveData({ immediateCloud: true });
+  closeOverlay("saved-days-overlay");
+  renderAll();
+  showToast("Saved day applied");
+}
+
+function deleteSavedDay(id) {
+  const savedDay = findSavedDay(id);
+  if (!savedDay) return;
+  if (!confirm(`Delete the saved day “${savedDay.name}”?`)) return;
+  const stamp = new Date().toISOString();
+  savedDay.deletedAt = stamp;
+  touchRecord(savedDay, stamp);
+  saveData({ immediateCloud: true });
+  renderSavedDays();
+  showToast("Saved day deleted");
+}
+
+function clearDayPlan(dayIndex) {
+  const index = Number(dayIndex);
+  const week = getWeek();
+  const date = addDays(selectedWeekStart, index);
+  if (!dayHasReusableContent(week, index)) {
+    showToast("This day is already clear");
+    return;
+  }
+  if (!confirm(`Clear lunch and dinner for ${formatDayLong(date)} ${formatDateShort(date)}?`)) return;
+  const stamp = new Date().toISOString();
+  week.slots.dinner[index] = [];
+  week.slots.lunch[index] = [];
+  touchWeekField(week, "dinner", index, stamp);
+  touchWeekField(week, "lunch", index, stamp);
+  syncLegacyWeekSlots(week);
+  saveData({ immediateCloud: true });
+  renderAll();
+  showToast("Day cleared");
+}
+
 function openWeekSettings() {
   $("#week-start-day").value = String(data.settings.weekStartDay);
   openOverlay("settings-overlay");
@@ -3897,6 +4203,16 @@ function bindEvents() {
     if (edit) return openMealEditor(edit.dataset.editMeal);
     const editMember = event.target.closest("[data-edit-member]");
     if (editMember) return openMemberEditor(editMember.dataset.editMember);
+    const saveDayButton = event.target.closest("[data-save-day]");
+    if (saveDayButton) return openSaveDay(saveDayButton.dataset.saveDay);
+    const loadDayButton = event.target.closest("[data-load-day]");
+    if (loadDayButton) return openSavedDays(loadDayButton.dataset.loadDay);
+    const clearDayButton = event.target.closest("[data-clear-day-plan]");
+    if (clearDayButton) return clearDayPlan(clearDayButton.dataset.clearDayPlan);
+    const useSavedDayButton = event.target.closest("[data-use-saved-day]");
+    if (useSavedDayButton) return useSavedDay(useSavedDayButton.dataset.useSavedDay);
+    const deleteSavedDayButton = event.target.closest("[data-delete-saved-day]");
+    if (deleteSavedDayButton) return deleteSavedDay(deleteSavedDayButton.dataset.deleteSavedDay);
     const useSavedWeekButton = event.target.closest("[data-use-saved-week]");
     if (useSavedWeekButton) return useSavedWeek(useSavedWeekButton.dataset.useSavedWeek);
     const deleteSavedWeekButton = event.target.closest("[data-delete-saved-week]");
@@ -3934,6 +4250,8 @@ function bindEvents() {
   $("#data-sharing").addEventListener("click", openDataSharing);
   $("#week-settings").addEventListener("click", openWeekSettings);
   $("#settings-form").addEventListener("submit", saveWeekSettings);
+  $("#remove-people").addEventListener("click", openRemovePeopleFromMeal);
+  $("#save-day-form").addEventListener("submit", saveCurrentDayTemplate);
   $("#copy-week-plan").addEventListener("click", openCopyWeek);
   $("#copy-week-date").addEventListener("change", updateCopyWeekTarget);
   $("#copy-week-form").addEventListener("submit", copyCurrentWeek);
@@ -4069,7 +4387,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.44", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.45", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {
