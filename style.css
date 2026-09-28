@@ -1287,6 +1287,8 @@ body.modal-open { overflow: hidden; }
 .method-textarea, .library-admin-textarea { width:100%; box-sizing:border-box; min-height:132px; resize:vertical; line-height:1.42; }
 
 .library-sheet, .library-detail-sheet, .library-admin-sheet, .method-sheet { display:flex; flex-direction:column; overflow:hidden; }
+/* v1.0.43 — keep the Recipe Library sheet a consistent height across packs. */
+.library-sheet { height:min(91dvh, 880px); }
 .library-sheet > .sheet-handle, .library-sheet > .sheet-header, .library-sheet > .library-toolbar, .library-sheet > .library-admin-tools, .library-sheet > .library-pack-strip, .library-sheet > .library-pack-summary,
 .library-detail-sheet > .sheet-handle, .library-detail-sheet > .sheet-header, .library-detail-sheet > .library-detail-meta, .library-detail-sheet > .library-detail-actions,
 .method-sheet > .sheet-handle, .method-sheet > .sheet-header, .method-sheet > #meal-method-edit,
