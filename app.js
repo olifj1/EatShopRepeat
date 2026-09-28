@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.41";
+const APP_VERSION = "1.0.42";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -1219,6 +1219,15 @@ function renderCook() {
   container.innerHTML = html || `<div class="empty-state"><strong>No cooking methods yet</strong><p>Add a recipe from the Library, import one, or add steps while editing a meal.</p></div>`;
 }
 
+function startCookingMeal(mealId) {
+  const meal = findMeal(mealId);
+  if (!meal) return;
+  if (!normaliseMethod(meal.method).length) return showToast("No cooking method has been added yet");
+  switchTab("cook");
+  renderCook();
+  requestAnimationFrame(() => openMealMethod(mealId));
+}
+
 function openMealMethod(mealId) {
   const meal = findMeal(mealId);
   if (!meal) return;
@@ -1247,9 +1256,13 @@ function renderMeals() {
     const tags = normaliseMealTags(meal.tags);
     const rating = mealRatingText(meal.rating);
     const meta = (rating || tags.length) ? `<div class="meal-card-meta">${rating ? `<span class="meal-card-rating" aria-label="${normaliseMealRating(meal.rating)} out of 5 stars">${rating}</span>` : ""}${tags.map(tag => `<button class="meal-tag-chip" type="button" data-meal-card-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}</div>` : "";
+    const hasMethod = normaliseMethod(meal.method).length > 0;
     return `<article class="meal-card">
       <div class="meal-card-main"><h3>${escapeHtml(meal.name)}</h3>${meta}<p class="meal-ingredients-preview">${escapeHtml(names || "No shopping items yet")}${meal.ingredients.length > 4 ? "…" : ""}</p></div>
-      <button type="button" data-edit-meal="${meal.id}" aria-label="Edit ${escapeHtml(meal.name)}">•••</button>
+      <div class="meal-card-actions">
+        ${hasMethod ? `<button class="meal-cook-button" type="button" data-cook-meal="${meal.id}" aria-label="Cook ${escapeHtml(meal.name)}">Cook</button>` : ""}
+        <button class="meal-more-button" type="button" data-edit-meal="${meal.id}" aria-label="Edit ${escapeHtml(meal.name)}">•••</button>
+      </div>
     </article>`;
   }).join("") : `<div class="empty-state"><strong>No meals found</strong><p>Try another search, category or rating filter.</p></div>`;
 }
@@ -3852,6 +3865,8 @@ function bindEvents() {
     if (addLibraryPackButton) return addLibraryPack(addLibraryPackButton.dataset.addLibraryPack);
     const editLibraryButton = event.target.closest("[data-library-edit]");
     if (editLibraryButton) return openLibraryAdminEditor(editLibraryButton.dataset.libraryEdit);
+    const cookMealButton = event.target.closest("[data-cook-meal]");
+    if (cookMealButton) return startCookingMeal(cookMealButton.dataset.cookMeal);
     const methodButton = event.target.closest("[data-view-method]");
     if (methodButton) return openMealMethod(methodButton.dataset.viewMethod);
     const addAlternative = event.target.closest("[data-add-alternative]");
@@ -4075,7 +4090,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.41", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.42", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {
