@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png?v=icon2">
-  <link rel="stylesheet" href="./style.css?v=1.0.49">
+  <link rel="stylesheet" href="./style.css?v=1.0.50">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -225,6 +225,13 @@
         <form id="recipe-import-form">
           <input class="text-input" id="recipe-import-url" type="url" inputmode="url" autocomplete="url" autocapitalize="none" spellcheck="false" placeholder="https://www.bbcgoodfood.com/recipes/…" required aria-label="Recipe link">
           <div class="recipe-import-status" id="recipe-import-status" role="status" aria-live="polite" hidden></div>
+          <div class="recipe-import-diagnostics" id="recipe-import-diagnostics" hidden>
+            <details open>
+              <summary>Import details</summary>
+              <pre id="recipe-import-diagnostics-text"></pre>
+            </details>
+            <button class="secondary-button recipe-import-copy" id="recipe-import-copy-diagnostics" type="button">Copy details</button>
+          </div>
           <button class="primary-button full-width" id="recipe-import-submit" type="submit">Read recipe</button>
         </form>
       </div>
@@ -815,7 +822,7 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.49"></script>
-  <script type="module" src="./firebase-sync.js?v=1.0.49"></script>
+  <script src="./app.js?v=1.0.50"></script>
+  <script type="module" src="./firebase-sync.js?v=1.0.50"></script>
 </body>
 </html>

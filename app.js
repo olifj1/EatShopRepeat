@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.49";
+const APP_VERSION = "1.0.50";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -2226,43 +2226,118 @@ async function fetchWithRecipeTimeout(url, timeoutMs = 12000) {
   finally { clearTimeout(timer); }
 }
 
+let lastRecipeImportDiagnostics = "";
+
+function recipeFetchFailureText(error) {
+  if (error?.name === "AbortError") return "timed out";
+  const message = normaliseName(error?.message || "");
+  if (!message || /load failed|failed to fetch|networkerror/i.test(message)) return "network/CORS blocked";
+  return message;
+}
+
+function markdownRecipeDiagnostics(text) {
+  const value = String(text || "");
+  const lines = value.replace(/\r/g, "").split("\n");
+  const headings = lines.map(markdownHeadingText).filter(Boolean);
+  const inputRows = lines.filter(line => /\[(?:Input|Checkbox)\]/i.test(line) && /(?:\d|¼|½|¾|⅓|⅔|⅛|⅜|⅝|⅞)/.test(line));
+  const bullets = lines.filter(line => /^\s*[-*+]\s+/.test(line));
+  return `recipe heading ${headings.some(value => /^recipe\b/i.test(value)) ? "yes" : "no"}; ingredients heading ${headings.some(value => /^ingredients?\b/i.test(value)) ? "yes" : "no"}; input rows ${inputRows.length}; bullets ${bullets.length}`;
+}
+
+function htmlRecipeDiagnostics(text) {
+  const doc = new DOMParser().parseFromString(String(text || ""), "text/html");
+  const jsonLd = doc.querySelectorAll('script[type="application/ld+json"]').length;
+  const ingredientNodes = doc.querySelectorAll('[itemprop="recipeIngredient"], .wprm-recipe-ingredient, .tasty-recipes-ingredients li, .mv-create-ingredients li').length;
+  const ingredientHeading = Array.from(doc.querySelectorAll("h1,h2,h3,h4,h5,h6")).some(node => /^ingredients?\b/i.test(normaliseName(node.textContent).replace(/^[^A-Za-z0-9]+/, "")));
+  return `JSON-LD blocks ${jsonLd}; recipe ingredient nodes ${ingredientNodes}; ingredients heading ${ingredientHeading ? "yes" : "no"}`;
+}
+
+function setRecipeImportDiagnostics(value = "") {
+  lastRecipeImportDiagnostics = String(value || "").trim();
+  const panel = $("#recipe-import-diagnostics");
+  const text = $("#recipe-import-diagnostics-text");
+  if (!panel || !text) return;
+  text.textContent = lastRecipeImportDiagnostics;
+  panel.hidden = !lastRecipeImportDiagnostics;
+}
+
+async function copyRecipeImportDiagnostics() {
+  if (!lastRecipeImportDiagnostics) return;
+  const output = `EatRepeat v${APP_VERSION} recipe import\n${lastRecipeImportDiagnostics}`;
+  try {
+    await navigator.clipboard.writeText(output);
+    showToast("Import details copied");
+  } catch (_) {
+    const area = document.createElement("textarea");
+    area.value = output;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    try { document.execCommand("copy"); showToast("Import details copied"); }
+    catch (_) { showToast("Could not copy details"); }
+    area.remove();
+  }
+}
+
 async function extractRecipeFromUrl(rawUrl) {
   const url = normaliseRecipeUrl(rawUrl);
   if (!url) throw new Error("Enter a valid http or https recipe link.");
 
-  // Prefer the publisher's own Schema.org Recipe data when CORS allows it.
+  const trace = [`URL: ${url.href}`];
+  const record = line => { trace.push(line); lastRecipeImportDiagnostics = trace.join("\n"); };
+
+  // Stage 1: direct publisher HTML. This is often blocked by browser CORS,
+  // but when available it gives us the publisher's own Schema.org data.
+  record("1. Direct page: starting");
   try {
     const direct = await fetchWithRecipeTimeout(url.href, 6500);
+    const html = await direct.text();
+    record(`1. Direct page: HTTP ${direct.status}; ${html.length} chars; ${htmlRecipeDiagnostics(html)}`);
     if (direct.ok) {
-      const recipe = recipeFromHtml(await direct.text(), url.href);
-      if (recipe) return recipe;
+      const recipe = recipeFromHtml(html, url.href);
+      if (recipe) { record(`1. Direct page: parsed ${recipe.ingredients.length} ingredients`); return recipe; }
+      record("1. Direct page: response received but no recipe parsed");
     }
-  } catch (_) {}
+  } catch (error) {
+    record(`1. Direct page: ${recipeFetchFailureText(error)}`);
+  }
 
-  // Reader works well for many recipe sites and avoids normal browser CORS.
-  // Its markdown varies between publishers, so the parser accepts both normal
-  // bullet lists and recipe-card [Input] lines.
+  // Stage 2: Reader converts the page to Markdown server-side. This is the
+  // normal cross-origin route for sites such as The Veg Space.
+  record("2. Reader: starting");
   try {
     const reader = await fetchWithRecipeTimeout(`https://r.jina.ai/${url.href}`, 18000);
+    const markdown = await reader.text();
+    record(`2. Reader: HTTP ${reader.status}; ${markdown.length} chars; ${markdownRecipeDiagnostics(markdown)}`);
     if (reader.ok) {
-      const recipe = recipeFromMarkdown(await reader.text(), url.href);
-      if (recipe) return recipe;
+      const recipe = recipeFromMarkdown(markdown, url.href);
+      if (recipe) { record(`2. Reader: parsed ${recipe.ingredients.length} ingredients`); return recipe; }
+      record("2. Reader: response received but no recipe parsed");
     }
-  } catch (_) {}
+  } catch (error) {
+    record(`2. Reader: ${recipeFetchFailureText(error)}`);
+  }
 
-  // Some WordPress recipe cards lose their list structure in Reader output.
-  // Fall back to a raw HTML CORS bridge so we can use the page's JSON-LD or
-  // visible Ingredients/Instructions markup with the same generic parser.
+  // Stage 3: raw HTML CORS bridge. This is intentionally last because it is
+  // a public fallback service rather than part of the app itself.
+  record("3. CORS proxy: starting");
   try {
     const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url.href)}`;
     const bridged = await fetchWithRecipeTimeout(proxyUrl, 18000);
+    const html = await bridged.text();
+    record(`3. CORS proxy: HTTP ${bridged.status}; ${html.length} chars; ${htmlRecipeDiagnostics(html)}`);
     if (bridged.ok) {
-      const recipe = recipeFromHtml(await bridged.text(), url.href);
-      if (recipe) return recipe;
+      const recipe = recipeFromHtml(html, url.href);
+      if (recipe) { record(`3. CORS proxy: parsed ${recipe.ingredients.length} ingredients`); return recipe; }
+      record("3. CORS proxy: response received but no recipe parsed");
     }
-  } catch (_) {}
+  } catch (error) {
+    record(`3. CORS proxy: ${recipeFetchFailureText(error)}`);
+  }
 
-  throw new Error("I could open that page, but couldn't find a clear ingredients section.");
+  setRecipeImportDiagnostics(trace.join("\n"));
+  throw new Error("That recipe still couldn't be imported. Open Import details below — it now shows exactly which fetch/parser stage failed.");
 }
 
 function setRecipeImportStatus(message = "", isError = false) {
@@ -2609,6 +2684,7 @@ async function importRecipeFromPhotos() {
 function openRecipeImporter() {
   $("#recipe-import-url").value = "";
   setRecipeImportStatus();
+  setRecipeImportDiagnostics();
   photoImportFiles = [];
   $("#recipe-photo-files").value = "";
   setPhotoImportStatus();
@@ -2625,14 +2701,19 @@ async function importRecipeFromWebsite(event) {
   button.textContent = "Reading recipe…";
   setRecipeImportStatus("Looking for the recipe name, ingredients and method…");
   try {
+    setRecipeImportDiagnostics();
     const recipe = await extractRecipeFromUrl(url);
     const ingredients = recipe.ingredients.map(parseRecipeIngredient).filter(item => item.name);
-    if (!ingredients.length) throw new Error("No usable ingredients were found on that page.");
+    if (!ingredients.length) {
+      setRecipeImportDiagnostics(`${lastRecipeImportDiagnostics}\nFinal ingredient conversion: 0 usable items`);
+      throw new Error("The recipe was found, but its ingredient lines could not be converted into shopping items.");
+    }
     closeOverlay("recipe-import-overlay");
     openMealEditor(null, { name: recipe.name, ingredients, method: recipe.method || [], sourceUrl: recipe.sourceUrl });
     showToast(`Imported ${ingredients.length} shopping item${ingredients.length === 1 ? "" : "s"}${recipe.serves ? ` · ${recipe.serves}` : ""}`);
   } catch (error) {
     setRecipeImportStatus(error?.message || "That recipe could not be imported.", true);
+    if (lastRecipeImportDiagnostics) setRecipeImportDiagnostics(lastRecipeImportDiagnostics);
   } finally {
     button.disabled = false;
     button.textContent = "Read recipe";
@@ -4674,6 +4755,7 @@ function bindEvents() {
   $("#meal-method-edit").addEventListener("click", () => { const id = activeMethodMealId; closeOverlay("meal-method-overlay"); if (id) openMealEditor(id); });
   $("#import-meal").addEventListener("click", openRecipeImporter);
   $("#recipe-import-form").addEventListener("submit", importRecipeFromWebsite);
+  $("#recipe-import-copy-diagnostics")?.addEventListener("click", copyRecipeImportDiagnostics);
   $("#recipe-photo-files").addEventListener("change", selectRecipePhotos);
   $("#recipe-photo-read").addEventListener("click", importRecipeFromPhotos);
   $("#add-ingredient").addEventListener("click", () => addIngredientRow({}));
@@ -4784,7 +4866,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.49", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.50", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {

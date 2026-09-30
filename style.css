@@ -1456,3 +1456,11 @@ body.modal-open { overflow: hidden; }
 .planned-side-add { background:transparent; }
 .planned-side-chip:active,
 .planned-side-add:active { background:rgba(37,43,51,.05); }
+
+
+/* v1.0.50 — recipe import diagnostics */
+.recipe-import-diagnostics { margin-top:8px; padding:9px 10px; border:1.5px solid var(--gh-line); border-radius:13px; background:rgba(255,255,255,.44); }
+.recipe-import-diagnostics details { margin:0; }
+.recipe-import-diagnostics summary { cursor:pointer; color:var(--gh-ink); font-size:11px; font-weight:850; }
+.recipe-import-diagnostics pre { margin:8px 0 0; max-height:170px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--gh-muted); font:10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; -webkit-overflow-scrolling:touch; }
+.recipe-import-copy { width:auto; min-height:36px; margin-top:8px; padding:7px 11px; font-size:11px; }
