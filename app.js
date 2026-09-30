@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.46";
+const APP_VERSION = "1.0.47";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -15,9 +15,10 @@ const CATEGORIES = [
 ];
 const UNITS = ["", "pack", "packs", "g", "kg", "ml", "l", "pint", "pints", "tbsp", "tsp", "cm", "clove", "cloves", "tin", "tins", "jar", "jars", "tub", "tubs"];
 const NO_MEAL = "__none__";
+const NOT_EATING = "__not_eating__";
 const DEFAULT_WEEK_START_DAY = 5; // Friday
 const BUNDLED_CONTENT_VERSION = 1;
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 const MEMBER_COLORS = ["sage", "terracotta", "blue", "gold", "rose", "plum"];
 const DEFAULT_MEAL_TAGS = ["Kids", "Adults", "Sunday", "Quick", "Lunch", "Vegetarian", "Treat"];
 const RECIPE_LIBRARY_URL = "./recipe-library.json";
@@ -28,7 +29,21 @@ const $ = selector => document.querySelector(selector);
 const $$ = selector => Array.from(document.querySelectorAll(selector));
 const uid = prefix => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 const normaliseName = value => String(value || "").trim().replace(/\s+/g, " ");
+const titleStyleName = value => String(value || "").replace(/(^|[\s\-–—/(&+])([a-zà-öø-ÿ])/g, (_, prefix, letter) => `${prefix}${letter.toLocaleUpperCase()}`);
 const keyName = value => normaliseName(value).toLocaleLowerCase();
+
+function applyTitleStyleToInput(input) {
+  if (!input) return;
+  const before = input.value;
+  const after = titleStyleName(before);
+  if (after === before) return;
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  input.value = after;
+  if (start !== null && end !== null) {
+    try { input.setSelectionRange(start, end); } catch (_) {}
+  }
+}
 const clone = value => JSON.parse(JSON.stringify(value));
 
 function localDateKey(date) {
@@ -498,6 +513,40 @@ function normaliseMethod(value) {
   return raw.map(step => normaliseName(String(step || "").replace(/^\s*\d+[.)]\s*/, ""))).filter(Boolean);
 }
 
+function normaliseMealSide(raw) {
+  const source = typeof raw === "string" ? { name: raw } : raw;
+  if (!source || typeof source !== "object") return null;
+  const name = titleStyleName(normaliseName(source.name));
+  if (!name) return null;
+  return {
+    id: source.id || uid("side"),
+    name,
+    includeInShop: source.includeInShop !== false,
+    itemId: source.itemId || null,
+    qty: normaliseName(source.qty),
+    unit: normaliseName(source.unit),
+    category: CATEGORIES.includes(source.category) ? source.category : "Other"
+  };
+}
+
+function normaliseMealSides(value) {
+  return (Array.isArray(value) ? value : []).map(normaliseMealSide).filter(Boolean);
+}
+
+function normaliseLibrarySide(raw) {
+  const source = typeof raw === "string" ? { name: raw } : raw;
+  if (!source || typeof source !== "object") return null;
+  const name = titleStyleName(normaliseName(source.name));
+  if (!name) return null;
+  return {
+    name,
+    includeInShop: source.includeInShop !== false,
+    qty: normaliseName(source.qty),
+    unit: normaliseName(source.unit),
+    category: CATEGORIES.includes(source.category) ? source.category : guessIngredientCategory(name)
+  };
+}
+
 function hiddenMealTagKeys() {
   return new Set((data?.household?.hiddenMealTags || []).map(keyName).filter(Boolean));
 }
@@ -568,6 +617,8 @@ function prepareDataObject(parsed) {
   }));
   clean.meals = clean.meals.map(meal => ({
     ...meal,
+    name: titleStyleName(normaliseName(meal.name)),
+    sides: normaliseMealSides(meal.sides),
     tags: normaliseMealTags(meal.tags),
     rating: normaliseMealRating(meal.rating),
     method: normaliseMethod(meal.method),
@@ -850,22 +901,26 @@ function mealPeriodMarkup(slotType, dayIndex, assignments) {
   if (assignments.length === 1) {
     const assignment = assignments[0];
     const noMeal = assignment.mealId === NO_MEAL;
-    const meal = noMeal ? null : findMeal(assignment.mealId);
-    const name = meal ? meal.name : noMeal ? "No meal / eating out" : "Choose meal";
-    const showAlternative = !!meal && canAddAlternativeMeal(assignments);
+    const notEating = assignment.mealId === NOT_EATING;
+    const meal = noMeal || notEating ? null : findMeal(assignment.mealId);
+    const name = meal ? meal.name : noMeal ? "No meal / eating out" : notEating ? "Not eating" : "Choose meal";
+    const showAlternative = !noMeal && (meal || notEating) && canAddAlternativeMeal(assignments);
+    const notEatingAudience = notEating ? `<span class="not-eating-inline">${audienceAvatarsMarkup(assignment.memberIds)}</span>` : "";
     return `<div class="meal-period single ${slotType} ${showAlternative ? "has-alternative" : ""}">
-      <button class="meal-slot ${slotType} ${meal || noMeal ? "" : "empty"}" type="button" data-day-index="${dayIndex}" data-meal-slot="${slotType}" data-assignment-id="${escapeHtml(assignment.id)}">
-        <span class="meal-slot-copy"><span class="slot-label">${label}</span><strong>${escapeHtml(name)}</strong></span><span class="slot-arrow" aria-hidden="true">›</span>
+      <button class="meal-slot ${slotType} ${meal || noMeal || notEating ? "" : "empty"}" type="button" data-day-index="${dayIndex}" data-meal-slot="${slotType}" data-assignment-id="${escapeHtml(assignment.id)}">
+        <span class="meal-slot-copy"><span class="slot-label">${label}</span><strong>${escapeHtml(name)}</strong>${notEatingAudience}</span><span class="slot-arrow" aria-hidden="true">›</span>
       </button>
       ${showAlternative ? addAlternativeMealButton(slotType, dayIndex) : ""}
     </div>`;
   }
 
   const rows = assignments.map(assignment => {
-    const meal = findMeal(assignment.mealId);
-    if (!meal) return "";
-    return `<button class="split-assignment-row" type="button" data-day-index="${dayIndex}" data-meal-slot="${slotType}" data-assignment-id="${escapeHtml(assignment.id)}">
-      <strong>${escapeHtml(meal.name)}</strong>${audienceAvatarsMarkup(assignment.memberIds)}<span class="slot-arrow" aria-hidden="true">›</span>
+    const notEating = assignment.mealId === NOT_EATING;
+    const meal = notEating ? null : findMeal(assignment.mealId);
+    if (!meal && !notEating) return "";
+    const name = notEating ? "Not eating" : meal.name;
+    return `<button class="split-assignment-row ${notEating ? "not-eating-row" : ""}" type="button" data-day-index="${dayIndex}" data-meal-slot="${slotType}" data-assignment-id="${escapeHtml(assignment.id)}">
+      <strong>${escapeHtml(name)}</strong>${audienceAvatarsMarkup(assignment.memberIds)}<span class="slot-arrow" aria-hidden="true">›</span>
     </button>`;
   }).join("");
   return `<div class="meal-period split ${slotType}">
@@ -974,11 +1029,12 @@ function normaliseLibrary(raw) {
     tags: Array.from(new Set((recipe.tags || []).map(normaliseName).filter(Boolean))),
     packIds: Array.from(new Set((recipe.packIds || []).filter(id => clean.packs.some(pack => pack.id === id)))),
     ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients.map(ingredient => ({
-      name: normaliseName(ingredient?.name),
+      name: titleStyleName(normaliseName(ingredient?.name)),
       qty: normaliseName(ingredient?.qty),
       unit: normaliseName(ingredient?.unit),
       category: CATEGORIES.includes(ingredient?.category) ? ingredient.category : guessIngredientCategory(ingredient?.name || "")
     })).filter(ingredient => ingredient.name) : [],
+    sides: Array.isArray(recipe.sides) ? recipe.sides.map(normaliseLibrarySide).filter(Boolean) : [],
     method: normaliseMethod(recipe.method),
     sourceId: recipe.sourceId || null,
     sourceUrl: recipe.sourceUrl || null
@@ -1041,7 +1097,7 @@ function renderLibraryPackSummary() {
 function libraryRecipeMatches(recipe, query) {
   if (librarySelectedPackId !== "all" && !recipe.packIds.includes(librarySelectedPackId)) return false;
   if (!query) return true;
-  const haystack = [recipe.title, recipe.servings, ...(recipe.tags || []), ...(recipe.ingredients || []).map(item => item.name), ...recipe.packIds.map(id => libraryPack(id)?.title || "")].join(" ");
+  const haystack = [recipe.title, recipe.servings, ...(recipe.tags || []), ...(recipe.ingredients || []).map(item => item.name), ...(recipe.sides || []).map(side => side.name), ...recipe.packIds.map(id => libraryPack(id)?.title || "")].join(" ");
   return keyName(haystack).includes(query);
 }
 
@@ -1084,8 +1140,9 @@ function renderLibraryRecipeDetail(recipeId) {
   const packNames = recipe.packIds.map(id => libraryPack(id)?.title).filter(Boolean);
   $("#library-detail-meta").innerHTML = `<div class="library-detail-chips">${recipe.servings ? `<span>${escapeHtml(recipe.servings)} servings</span>` : ""}${recipe.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div>${packNames.length ? `<p>In ${escapeHtml(packNames.join(" · "))}</p>` : ""}${source ? `<p>Source: ${escapeHtml(source.title)} · ${escapeHtml(source.license || "")}</p>` : ""}`;
   const ingredients = recipe.ingredients.map(item => `<li><strong>${escapeHtml([item.qty, item.unit].filter(Boolean).join(" "))}</strong><span>${escapeHtml(item.name)}</span></li>`).join("");
+  const sides = (recipe.sides || []).map(side => `<li>${escapeHtml(side.name)}${side.includeInShop && (side.qty || side.unit) ? ` <span class="muted-copy">· ${escapeHtml([side.qty, side.unit].filter(Boolean).join(" "))}</span>` : ""}</li>`).join("");
   const method = recipe.method.map(step => `<li>${escapeHtml(step)}</li>`).join("");
-  $("#library-detail-body").innerHTML = `<section class="recipe-detail-section"><h4>Ingredients</h4><ul class="recipe-ingredient-list">${ingredients}</ul></section><section class="recipe-detail-section"><h4>Method</h4>${method ? `<ol class="recipe-method-list">${method}</ol>` : `<p class="muted-copy">No method has been added yet.</p>`}</section>${recipe.sourceUrl ? `<a class="recipe-source-link" href="${escapeHtml(recipe.sourceUrl)}" target="_blank" rel="noopener noreferrer">View original source ↗</a>` : ""}`;
+  $("#library-detail-body").innerHTML = `<section class="recipe-detail-section"><h4>Ingredients</h4><ul class="recipe-ingredient-list">${ingredients}</ul></section>${sides ? `<section class="recipe-detail-section"><h4>Sides</h4><ul class="recipe-side-list">${sides}</ul></section>` : ""}<section class="recipe-detail-section"><h4>Method</h4>${method ? `<ol class="recipe-method-list">${method}</ol>` : `<p class="muted-copy">No method has been added yet.</p>`}</section>${recipe.sourceUrl ? `<a class="recipe-source-link" href="${escapeHtml(recipe.sourceUrl)}" target="_blank" rel="noopener noreferrer">View original source ↗</a>` : ""}`;
   const existing = addedLibraryMeal(recipe.id);
   const addButton = $("#library-add-recipe");
   addButton.textContent = existing ? "Already in my meals" : "Add to my meals";
@@ -1104,13 +1161,20 @@ function addLibraryRecipe(recipeId, options = {}) {
   if (addedLibraryMeal(recipe.id)) return false;
   const now = new Date().toISOString();
   const ingredients = recipe.ingredients.map(raw => {
-    const item = ensureItem(raw.name, raw.category || guessIngredientCategory(raw.name));
+    const item = ensureItem(titleStyleName(raw.name), raw.category || guessIngredientCategory(raw.name));
     return { itemId: item.id, qty: normaliseName(raw.qty), unit: normaliseName(raw.unit) };
   });
+  const sides = (recipe.sides || []).map(raw => {
+    const side = normaliseLibrarySide(raw);
+    if (!side) return null;
+    const item = side.includeInShop ? ensureItem(side.name, side.category || guessIngredientCategory(side.name)) : null;
+    return normaliseMealSide({ ...side, id: uid("side"), itemId: item?.id || null });
+  }).filter(Boolean);
   data.meals.push({
     id: uid("meal"),
-    name: recipe.title,
+    name: titleStyleName(recipe.title),
     ingredients,
+    sides,
     method: normaliseMethod(recipe.method),
     tags: [],
     rating: 0,
@@ -1181,6 +1245,7 @@ function openLibraryAdminEditor(recipeId = null) {
   $("#library-admin-tags").value = (recipe?.tags || []).join(", ");
   $("#library-admin-pack-checks").innerHTML = recipeLibrary.packs.map(pack => `<label class="library-pack-check"><input type="checkbox" value="${escapeHtml(pack.id)}" ${(recipe?.packIds || []).includes(pack.id) ? "checked" : ""}><span><strong>${escapeHtml(pack.title)}</strong><small>${escapeHtml(pack.description || "")}</small></span></label>`).join("");
   $("#library-admin-ingredients").value = (recipe?.ingredients || []).map(item => [item.qty || "", item.unit || "", item.name || "", item.category || "Other"].join(" | ")).join("\n");
+  $("#library-admin-sides").value = (recipe?.sides || []).map(side => [side.name || "", side.qty || "", side.unit || "", side.category || "Other", side.includeInShop === false ? "no-shop" : "shop"].join(" | ")).join("\n");
   $("#library-admin-method").value = (recipe?.method || []).join("\n");
   $("#library-admin-delete").hidden = !recipe;
   openOverlay("library-admin-editor-overlay");
@@ -1197,16 +1262,22 @@ function saveLibraryAdminRecipe(event) {
     const [qty = "", unit = "", name = "", category = ""] = line.split("|").map(part => normaliseName(part));
     return { name, qty, unit, category: CATEGORIES.includes(category) ? category : guessIngredientCategory(name) };
   }).filter(item => item.name);
+  const sideLines = $("#library-admin-sides").value.replace(/\r/g, "").split("\n").map(line => line.trim()).filter(Boolean);
+  const sides = sideLines.map(line => {
+    const [name = "", qty = "", unit = "", category = "", shop = "shop"] = line.split("|").map(part => normaliseName(part));
+    return normaliseLibrarySide({ name, qty, unit, category, includeInShop: !/^(no|false|off|no-shop)$/i.test(shop) });
+  }).filter(Boolean);
   const packIds = Array.from($("#library-admin-pack-checks").querySelectorAll('input[type="checkbox"]:checked')).map(input => input.value);
   const next = {
     id,
-    title,
+    title: titleStyleName(title),
     servings: normaliseName($("#library-admin-servings").value),
     tags: Array.from(new Set($("#library-admin-tags").value.split(",").map(normaliseName).filter(Boolean))),
     packIds,
     sourceId: $("#library-admin-source").value || null,
     sourceUrl: normaliseName($("#library-admin-source-url").value) || null,
     ingredients,
+    sides,
     method: normaliseMethod($("#library-admin-method").value)
   };
   const index = recipeLibrary.recipes.findIndex(recipe => recipe.id === id);
@@ -1236,6 +1307,14 @@ function householdMealIngredientText(ingredient) {
   return [ingredient.qty, ingredient.unit, item?.name].filter(Boolean).join(" ");
 }
 
+function mealSideNames(meal) {
+  return normaliseMealSides(meal?.sides).map(side => side.name);
+}
+
+function mealShoppingItemCount(meal) {
+  return (meal?.ingredients?.length || 0) + normaliseMealSides(meal?.sides).filter(side => side.includeInShop && side.itemId).length;
+}
+
 function startCookingMeal(mealId) {
   const meal = findMeal(mealId);
   if (!meal) return;
@@ -1249,8 +1328,9 @@ function openMealMethod(mealId) {
   activeMethodMealId = meal.id;
   $("#meal-method-title").textContent = meal.name;
   const ingredients = meal.ingredients.map(ingredient => `<li>${escapeHtml(householdMealIngredientText(ingredient))}</li>`).join("");
+  const sides = normaliseMealSides(meal.sides).map(side => `<li>${escapeHtml(side.name)}</li>`).join("");
   const method = normaliseMethod(meal.method).map(step => `<li>${escapeHtml(step)}</li>`).join("");
-  $("#meal-method-body").innerHTML = `<section class="recipe-detail-section"><h4>Ingredients</h4><ul class="meal-method-ingredients">${ingredients}</ul></section><section class="recipe-detail-section"><h4>Method</h4>${method ? `<ol class="recipe-method-list">${method}</ol>` : `<p class="muted-copy">No method has been added to this meal.</p>`}</section>${meal.sourceUrl ? `<a class="recipe-source-link" href="${escapeHtml(meal.sourceUrl)}" target="_blank" rel="noopener noreferrer">View source ↗</a>` : ""}`;
+  $("#meal-method-body").innerHTML = `<section class="recipe-detail-section"><h4>Ingredients</h4><ul class="meal-method-ingredients">${ingredients}</ul></section>${sides ? `<section class="recipe-detail-section"><h4>Sides</h4><ul class="meal-method-sides">${sides}</ul></section>` : ""}<section class="recipe-detail-section"><h4>Method</h4>${method ? `<ol class="recipe-method-list">${method}</ol>` : `<p class="muted-copy">No method has been added to this meal.</p>`}</section>${meal.sourceUrl ? `<a class="recipe-source-link" href="${escapeHtml(meal.sourceUrl)}" target="_blank" rel="noopener noreferrer">View source ↗</a>` : ""}`;
   openOverlay("meal-method-overlay");
 }
 
@@ -1268,12 +1348,13 @@ function renderMeals() {
     .sort((a, b) => a.name.localeCompare(b.name));
   $("#meal-list").innerHTML = meals.length ? meals.map(meal => {
     const names = meal.ingredients.slice(0, 4).map(ing => findItem(ing.itemId)?.name).filter(Boolean).join(", ");
+    const sideNames = mealSideNames(meal);
     const tags = normaliseMealTags(meal.tags);
     const rating = mealRatingText(meal.rating);
     const meta = (rating || tags.length) ? `<div class="meal-card-meta">${rating ? `<span class="meal-card-rating" aria-label="${normaliseMealRating(meal.rating)} out of 5 stars">${rating}</span>` : ""}${tags.map(tag => `<button class="meal-tag-chip" type="button" data-meal-card-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}</div>` : "";
     const hasMethod = normaliseMethod(meal.method).length > 0;
     return `<article class="meal-card">
-      <div class="meal-card-main"><h3>${escapeHtml(meal.name)}</h3>${meta}<p class="meal-ingredients-preview">${escapeHtml(names || "No shopping items yet")}${meal.ingredients.length > 4 ? "…" : ""}</p></div>
+      <div class="meal-card-main"><h3>${escapeHtml(meal.name)}</h3>${meta}<p class="meal-ingredients-preview">${escapeHtml(names || "No shopping items yet")}${meal.ingredients.length > 4 ? "…" : ""}</p>${sideNames.length ? `<p class="meal-sides-preview">Sides: ${escapeHtml(sideNames.slice(0, 3).join(", "))}${sideNames.length > 3 ? "…" : ""}</p>` : ""}</div>
       <div class="meal-card-actions">
         ${hasMethod ? `<button class="meal-cook-button" type="button" data-cook-meal="${meal.id}" aria-label="Cook ${escapeHtml(meal.name)}">Cook</button>` : ""}
         <button class="meal-more-button" type="button" data-edit-meal="${meal.id}" aria-label="Edit ${escapeHtml(meal.name)}">•••</button>
@@ -1324,7 +1405,8 @@ function pickerRow(meal) {
   const tags = normaliseMealTags(meal.tags);
   const rating = mealRatingText(meal.rating);
   const meta = (rating || tags.length) ? `<span class="picker-row-meta meal-card-meta">${rating ? `<span class="meal-card-rating" aria-label="${normaliseMealRating(meal.rating)} out of 5 stars">${rating}</span>` : ""}${tags.map(tag => `<span class="meal-tag-chip">${escapeHtml(tag)}</span>`).join("")}</span>` : "";
-  return `<button class="picker-row" type="button" data-pick-meal="${meal.id}"><span class="picker-row-main"><strong>${escapeHtml(meal.name)}</strong>${meta}</span><span class="picker-row-count">${meal.ingredients.length} item${meal.ingredients.length === 1 ? "" : "s"}</span></button>`;
+  const count = mealShoppingItemCount(meal);
+  return `<button class="picker-row" type="button" data-pick-meal="${meal.id}"><span class="picker-row-main"><strong>${escapeHtml(meal.name)}</strong>${meta}</span><span class="picker-row-count">${count} item${count === 1 ? "" : "s"}</span></button>`;
 }
 
 function normalisedAudienceIds(memberIds) {
@@ -1369,6 +1451,10 @@ function openMealPicker(dayIndex, slotType = "dinner", assignmentId = null, mode
       : (pickerSlotType === "lunch" ? "Remove lunch" : "Clear dinner");
   }
   $("#no-dinner").hidden = pickerMode === "alternative" || pickerSlotType === "lunch" || assignments.length > 1 || assignmentIndex > 0;
+  const notEatingButton = $("#not-eating");
+  const hasMealAssignments = assignments.some(entry => entry.mealId !== NO_MEAL && entry.mealId !== NOT_EATING);
+  const hasAvailableNotEatingMembers = activeMembers().some(member => !assignments.some(entry => entry.mealId === NOT_EATING && assignmentMemberIds(entry).includes(member.id)));
+  notEatingButton.hidden = pickerMode === "alternative" || !activeMembers().length || !hasMealAssignments || !hasAvailableNotEatingMembers || assignment?.mealId === NOT_EATING;
   renderPickerAssignmentFooter(assignments, assignment, assignmentIndex);
   $("#picker-search").value = "";
   pickerTagFilters = [];
@@ -1392,6 +1478,13 @@ function renderPickerAssignmentFooter(assignments, assignment, assignmentIndex) 
   const members = assignmentMemberIds(assignment).map(findMember).filter(Boolean);
   avatars.innerHTML = members.map(member => memberAvatar(member)).join("");
   removePeople.hidden = assignments.length < 2 || assignmentIndex < 0 || !members.length;
+}
+
+function assignmentDisplayName(assignment) {
+  if (!assignment) return "meal";
+  if (assignment.mealId === NOT_EATING) return "Not eating";
+  if (assignment.mealId === NO_MEAL) return "No meal / eating out";
+  return findMeal(assignment.mealId)?.name || "meal";
 }
 
 function movePeopleBetweenAssignments(assignments, assignmentId, memberIds, now) {
@@ -1447,11 +1540,33 @@ function normaliseSplitSlot(assignments) {
       memberIds: assignment.memberIds === null ? null : Array.from(new Set((assignment.memberIds || []).filter(id => activeIds.has(id))))
     }))
     .filter(assignment => assignment.memberIds === null || assignment.memberIds.length);
-  if (clean.length === 1 && members.length) {
-    const ids = clean[0].memberIds;
-    if (ids === null || (ids.length === members.length && members.every(member => ids.includes(member.id)))) clean[0].memberIds = null;
+
+  // A person can move from Not eating (or another alternative) back onto a
+  // meal that already exists in the slot. Collapse those duplicate rows so
+  // the planner always shows one assignment per meal/state.
+  const merged = [];
+  clean.forEach(assignment => {
+    const existing = merged.find(entry => entry.mealId === assignment.mealId);
+    if (!existing) {
+      merged.push({ ...assignment, memberIds: assignment.memberIds === null ? null : [...assignment.memberIds] });
+      return;
+    }
+    if (existing.memberIds === null || assignment.memberIds === null) {
+      existing.memberIds = null;
+    } else {
+      existing.memberIds = Array.from(new Set([...existing.memberIds, ...assignment.memberIds]));
+    }
+    if (String(assignment.updatedAt || "") > String(existing.updatedAt || "")) {
+      existing.updatedAt = assignment.updatedAt;
+      existing.updatedBy = assignment.updatedBy;
+    }
+  });
+
+  if (merged.length === 1 && members.length) {
+    const ids = merged[0].memberIds;
+    if (ids === null || (ids.length === members.length && members.every(member => ids.includes(member.id)))) merged[0].memberIds = null;
   }
-  return clean;
+  return merged;
 }
 
 function applyMealToAudience(assignments, mealId, assignmentId, audienceIds, now) {
@@ -1488,6 +1603,31 @@ function applyMealToAudience(assignments, mealId, assignmentId, audienceIds, now
   });
 
   if (!targetFound) next.push(makeAssignment(mealId, selectedIds, now, null, currentMemberId()));
+  return normaliseSplitSlot(next);
+}
+
+function applyNotEatingToAudience(assignments, audienceIds, now) {
+  const allIds = activeMembers().map(member => member.id);
+  if (!allIds.length) return assignments;
+  const selected = new Set((audienceIds || []).filter(id => allIds.includes(id)));
+  if (!selected.size) return assignments;
+
+  const existingNotEating = assignments.find(assignment => assignment.mealId === NOT_EATING);
+  const notEatingIds = new Set(existingNotEating ? assignmentMemberIds(existingNotEating) : []);
+  selected.forEach(id => notEatingIds.add(id));
+
+  const next = [];
+  assignments.forEach(assignment => {
+    if (assignment.mealId === NOT_EATING) return;
+    const remaining = assignmentMemberIds(assignment).filter(id => !selected.has(id));
+    if (!remaining.length) return;
+    next.push({ ...assignment, memberIds: normalisedAudienceIds(remaining), updatedAt: now, updatedBy: currentMemberId() });
+  });
+
+  const finalNotEatingIds = Array.from(notEatingIds);
+  next.push(existingNotEating
+    ? { ...existingNotEating, memberIds: normalisedAudienceIds(finalNotEatingIds), updatedAt: now, updatedBy: currentMemberId() }
+    : makeAssignment(NOT_EATING, normalisedAudienceIds(finalNotEatingIds), now, null, currentMemberId()));
   return normaliseSplitSlot(next);
 }
 
@@ -1585,6 +1725,29 @@ function ingredientRow(ingredient = {}) {
 
 function addIngredientRow(ingredient = {}) {
   $("#ingredient-list").insertAdjacentHTML("beforeend", ingredientRow(ingredient));
+}
+
+function sideRow(side = {}) {
+  const clean = normaliseMealSide(side) || { id: uid("side"), name: "", includeInShop: true, itemId: null, qty: "", unit: "", category: "Other" };
+  const item = clean.itemId ? findItem(clean.itemId) : null;
+  const selectedCategory = item?.category || clean.category || guessIngredientCategory(clean.name || "");
+  const includeInShop = clean.includeInShop !== false;
+  return `<div class="side-row ${includeInShop ? "include-shop" : ""}" data-side-row data-side-id="${escapeHtml(clean.id || "")}">
+    <div class="side-row-main">
+      <input class="text-input side-name" type="text" placeholder="e.g. Garlic Bread" value="${escapeHtml(clean.name || "")}" autocomplete="off" aria-label="Side name">
+      <label class="side-shop-toggle"><input class="side-include-shop" type="checkbox" ${includeInShop ? "checked" : ""}><span>Shop</span></label>
+      <button class="remove-side" type="button" aria-label="Remove side">×</button>
+    </div>
+    <div class="side-shop-fields">
+      <input class="text-input side-qty" type="text" inputmode="decimal" placeholder="Qty" value="${escapeHtml(clean.qty || "")}" aria-label="Side quantity">
+      <input class="text-input side-unit" type="text" list="unit-list" placeholder="Unit" value="${escapeHtml(clean.unit || "")}" aria-label="Side unit">
+      <select class="text-input select-input side-category" aria-label="Side shopping category">${categoryOptions(selectedCategory)}</select>
+    </div>
+  </div>`;
+}
+
+function addSideRow(side = {}) {
+  $("#side-list").insertAdjacentHTML("beforeend", sideRow(side));
 }
 
 function renderMealTagEditor() {
@@ -1737,7 +1900,7 @@ function instructionLinesFromValue(value) {
 
 function visibleMethodFromHtml(doc) {
   const headings = Array.from(doc.querySelectorAll("h1,h2,h3,h4,h5,h6"));
-  const methodHeading = headings.find(node => /^(method|directions|instructions|preparation)\s*:?$/i.test(normaliseName(node.textContent)));
+  const methodHeading = headings.find(node => /^(method|directions|instructions|preparation)\b/i.test(normaliseName(node.textContent).replace(/^[^A-Za-z0-9]+/, "")));
   if (!methodHeading) return [];
   const result = [];
   let node = methodHeading.nextElementSibling;
@@ -1773,7 +1936,7 @@ function recipeFromHtml(html, sourceUrl) {
   // Printable WordPress recipe-plugin pages often contain clean visible recipe
   // markup but no JSON-LD. Read their H1 and Ingredients list directly.
   const headings = Array.from(doc.querySelectorAll("h1,h2,h3,h4,h5,h6"));
-  const ingredientsHeading = headings.find(node => /^ingredients\s*:?$/i.test(normaliseName(node.textContent)));
+  const ingredientsHeading = headings.find(node => /^ingredients\b/i.test(normaliseName(node.textContent).replace(/^[^A-Za-z0-9]+/, "")));
   if (!ingredientsHeading) return null;
   const endHeading = /^(method|directions|instructions|preparation|nutrition|notes?)\b/i;
   const ingredients = [];
@@ -1820,59 +1983,97 @@ function cleanMarkdownRecipeText(value) {
   return normaliseName(String(value || "")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\[(?:Input|Button:[^\]]*)\]/gi, "")
+    .replace(/^\s*\[[ xX]\]\s*/, "")
     .replace(/[*_`]/g, "")
     .replace(/&nbsp;/gi, " "));
 }
 
+function markdownHeadingText(line) {
+  const match = /^#{1,6}\s+(.+?)\s*$/.exec(String(line || "").trim());
+  if (!match) return "";
+  return cleanMarkdownRecipeText(match[1]).replace(/^[^A-Za-z0-9]+/, "").trim();
+}
+
 function recipeFromMarkdown(markdown, sourceUrl) {
   const lines = String(markdown || "").replace(/\r/g, "").split("\n");
-  const start = lines.findIndex(line => /^#{1,4}\s+ingredients\s*:?\s*$/i.test(line.trim()));
+  const headingAt = index => markdownHeadingText(lines[index]);
+  const recipeHeadingIndex = lines.findIndex((line, index) => /^recipe\b/i.test(headingAt(index)));
+  let start = -1;
+  for (let i = Math.max(0, recipeHeadingIndex); i < lines.length; i += 1) {
+    if (/^ingredients?\b/i.test(headingAt(i))) { start = i; break; }
+  }
+  if (start < 0) {
+    start = lines.findIndex((line, index) => /^ingredients?\b/i.test(headingAt(index)));
+  }
   if (start < 0) return null;
-  let titleLine = "";
-  for (let i = start - 1; i >= 0; i -= 1) {
-    if (/^#\s+\S/.test(lines[i].trim())) { titleLine = lines[i]; break; }
+
+  let name = "";
+  if (recipeHeadingIndex >= 0 && recipeHeadingIndex < start) {
+    for (let i = start - 1; i > recipeHeadingIndex; i -= 1) {
+      const heading = headingAt(i);
+      if (!heading || /^(ingredients?|recipe|for the\b)/i.test(heading)) continue;
+      name = heading;
+      break;
+    }
   }
-  if (!titleLine) {
-    titleLine = lines.find(line => /^title\s*:/i.test(line.trim())) || "";
-    titleLine = titleLine.replace(/^title\s*:\s*/i, "# ");
+  // Preserve the older importer behaviour for sites without a dedicated
+  // Recipe heading: the page H1 is a safer title than a nearby editorial
+  // subheading such as “What you need”.
+  if (!name) {
+    for (let i = start - 1; i >= 0; i -= 1) {
+      if (!/^#\s+\S/.test(String(lines[i] || "").trim())) continue;
+      const heading = headingAt(i);
+      if (heading && !/^recipe\b/i.test(heading)) { name = heading; break; }
+    }
   }
-  let name = cleanMarkdownRecipeText((titleLine || "").replace(/^#\s+/, ""));
-  name = name.replace(/\s+[|–—-]\s+[^|–—-]+$/, "").trim() || "Imported recipe";
-  const servesLine = lines.find(line => /^\s*(serves|makes|yield)\b/i.test(cleanMarkdownRecipeText(line)));
+  if (!name) {
+    let titleLine = lines.find(line => /^title\s*:/i.test(line.trim())) || "";
+    name = cleanMarkdownRecipeText(titleLine.replace(/^title\s*:\s*/i, ""));
+  }
+  name = titleStyleName(name.replace(/\s+[|–—-]\s+[^|–—-]+$/, "").trim() || "Imported Recipe");
+
+  const servesLine = lines.find(line => /^\s*(serves|servings|makes|yield)\b/i.test(cleanMarkdownRecipeText(line)));
   const serves = servesLine ? cleanMarkdownRecipeText(servesLine) : "";
-  const endHeadings = /^(nutrition|method|directions|instructions|preparation|comments|notes|rate this recipe)\b/i;
+  const endHeadings = /^(nutrition|method|directions|instructions|preparation|comments|notes|rate this recipe|video)\b/i;
   const collected = [];
   let current = "";
   const flush = () => { if (current) collected.push(cleanMarkdownRecipeText(current)); current = ""; };
   for (let i = start + 1; i < lines.length; i += 1) {
     const raw = lines[i].trim();
-    if (/^#{1,4}\s+/.test(raw)) {
-      const heading = cleanMarkdownRecipeText(raw.replace(/^#{1,4}\s+/, ""));
+    const heading = headingAt(i);
+    if (heading) {
       if (endHeadings.test(heading)) break;
-      if (heading) { flush(); }
+      flush();
       continue;
     }
     if (!raw) continue;
+    const isBullet = /^[-*+]\s+/.test(raw);
     const text = cleanMarkdownRecipeText(raw.replace(/^[-*+]\s+/, ""));
-    if (!text || /^(units:?|metric\s*us|us conversions|loading\.{0,3}|ad)$/i.test(text) || /^not all measurements/i.test(text)) continue;
-    if (/^[-*+]\s+/.test(raw)) {
+    if (!text || /^(units:?|metric\s*us|us conversions|loading\.{0,3}|ad|1x\s*2x\s*3x)$/i.test(text) || /^not all measurements/i.test(text) || /^cook mode\b/i.test(text)) continue;
+    if (isBullet) {
       flush();
       current = text;
-    } else if (current && text.length < 100 && !/^(keep the screen|print|save recipe)/i.test(text)) {
+    } else if (current && text.length < 120 && !/^(keep the screen|print|save recipe)/i.test(text)) {
       current += ` ${text}`;
     }
   }
   flush();
   const ingredients = collected.filter(line => line && !/^nutrition\b/i.test(line));
-  const methodStart = lines.findIndex(line => /^#{1,4}\s+(method|directions|instructions|preparation)\s*:?\s*$/i.test(line.trim()));
+
+  let methodStart = -1;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (/^(method|directions|instructions|preparation)\b/i.test(headingAt(i))) { methodStart = i; break; }
+  }
   const method = [];
   if (methodStart >= 0) {
     for (let i = methodStart + 1; i < lines.length; i += 1) {
       const raw = lines[i].trim();
-      if (/^#{1,4}\s+/.test(raw)) break;
+      const heading = headingAt(i);
+      if (heading) break;
       if (!raw) continue;
       const text = cleanMarkdownRecipeText(raw.replace(/^\d+[.)]\s+/, "").replace(/^[-*+]\s+/, ""));
-      if (text && !/^(notes?|nutrition|rate this recipe)\b/i.test(text)) method.push(text);
+      if (text && !/^(notes?|nutrition|rate this recipe|video)\b/i.test(text)) method.push(text);
     }
   }
   return ingredients.length ? { name, ingredients, method: normaliseMethod(method), serves, sourceUrl } : null;
@@ -1905,7 +2106,7 @@ function guessIngredientCategory(name) {
 }
 
 function parseRecipeIngredient(raw) {
-  let line = cleanMarkdownRecipeText(raw).replace(/^[-*+]\s+/, "");
+  let line = cleanMarkdownRecipeText(raw).replace(/^[-*+]\s+/, "").replace(/^\[?Input\]?\s*/i, "");
   line = line.replace(/\s+/g, " ").trim();
   const fraction = "(?:\\d+(?:[.,]\\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])";
   let qty = "";
@@ -1922,9 +2123,10 @@ function parseRecipeIngredient(raw) {
     if (amount) {
       qty = amount[1].replace(",", ".");
       name = amount[2];
-      const unitMatch = /^(tbsp|tsp|kg|g|ml|l|litres?|liters?|pints?|cloves?|cans?|tins?|jars?|packs?|packets?|tubs?|bottles?|slices?|handfuls?|bunch(?:es)?|small bunch|large bunch)\b\s*(?:of\s+)?(.*)$/i.exec(name);
+      const unitMatch = /^(tbsp|tablespoons?|tsp|teaspoons?|kg|g|ml|l|litres?|liters?|pints?|cloves?|cans?|tins?|jars?|packs?|packets?|tubs?|bottles?|slices?|handfuls?|bunch(?:es)?|small bunch|large bunch)\b\s*(?:of\s+)?(.*)$/i.exec(name);
       if (unitMatch) {
-        unit = unitMatch[1];
+        const rawUnit = unitMatch[1].toLowerCase();
+        unit = /^tablespoon/.test(rawUnit) ? "tbsp" : /^teaspoon/.test(rawUnit) ? "tsp" : unitMatch[1];
         name = unitMatch[2];
       }
     }
@@ -1936,6 +2138,7 @@ function parseRecipeIngredient(raw) {
     .sort((a, b) => keyName(b.name).length - keyName(a.name).length)
     .find(item => nameKey.includes(keyName(item.name)));
   if (known) name = known.name;
+  else name = titleStyleName(name);
   return { name, qty, unit, category: guessIngredientCategory(name), raw: line };
 }
 
@@ -2331,7 +2534,7 @@ async function importRecipeFromWebsite(event) {
   const url = $("#recipe-import-url").value;
   button.disabled = true;
   button.textContent = "Reading recipe…";
-  setRecipeImportStatus("Looking for the recipe name and ingredients…");
+  setRecipeImportStatus("Looking for the recipe name, ingredients and method…");
   try {
     const recipe = await extractRecipeFromUrl(url);
     const ingredients = recipe.ingredients.map(parseRecipeIngredient).filter(item => item.name);
@@ -2364,6 +2567,8 @@ function openMealEditor(mealId = null, prefill = null) {
   $("#ingredient-list").innerHTML = "";
   const ingredients = meal?.ingredients?.length ? meal.ingredients : draft?.ingredients?.length ? draft.ingredients : [{}, {}, {}];
   ingredients.forEach(addIngredientRow);
+  $("#side-list").innerHTML = "";
+  normaliseMealSides(meal?.sides || draft?.sides || []).forEach(addSideRow);
   $("#meal-method").value = normaliseMethod(meal?.method || draft?.method || []).join("\n");
   $("#delete-meal").hidden = !meal;
   renderKnownItems();
@@ -2372,15 +2577,32 @@ function openMealEditor(mealId = null, prefill = null) {
 
 function saveMealFromForm(event) {
   event.preventDefault();
-  const name = normaliseName($("#meal-name").value);
+  const name = titleStyleName(normaliseName($("#meal-name").value));
   if (!name) return;
   const ingredients = [];
   $$("#ingredient-list [data-ingredient-row]").forEach(row => {
-    const itemName = normaliseName(row.querySelector(".ingredient-name").value);
+    const itemName = titleStyleName(normaliseName(row.querySelector(".ingredient-name").value));
     if (!itemName) return;
     const category = row.querySelector(".ingredient-category").value;
     const item = ensureItem(itemName, category);
     ingredients.push({ itemId: item.id, qty: normaliseName(row.querySelector(".ingredient-qty").value), unit: normaliseName(row.querySelector(".ingredient-unit").value) });
+  });
+  const sides = [];
+  $$("#side-list [data-side-row]").forEach(row => {
+    const sideName = titleStyleName(normaliseName(row.querySelector(".side-name").value));
+    if (!sideName) return;
+    const includeInShop = row.querySelector(".side-include-shop").checked;
+    const category = row.querySelector(".side-category").value;
+    const item = includeInShop ? ensureItem(sideName, category) : null;
+    sides.push(normaliseMealSide({
+      id: row.dataset.sideId || uid("side"),
+      name: sideName,
+      includeInShop,
+      itemId: item?.id || null,
+      qty: normaliseName(row.querySelector(".side-qty").value),
+      unit: normaliseName(row.querySelector(".side-unit").value),
+      category
+    }));
   });
   const now = new Date().toISOString();
   const id = $("#meal-id").value;
@@ -2389,13 +2611,14 @@ function saveMealFromForm(event) {
     if (!meal) return;
     meal.name = name;
     meal.ingredients = ingredients;
+    meal.sides = sides;
     meal.tags = normaliseMealTags(editingMealTags);
     meal.rating = normaliseMealRating(editingMealRating);
     meal.sourceUrl = editingMealSourceUrl || null;
     meal.method = normaliseMethod($("#meal-method").value);
     touchRecord(meal, now);
   } else {
-    data.meals.push({ id: uid("meal"), name, ingredients, method: normaliseMethod($("#meal-method").value), tags: normaliseMealTags(editingMealTags), rating: normaliseMealRating(editingMealRating), sourceUrl: editingMealSourceUrl || null, libraryRecipeId: null, librarySourceId: null, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null });
+    data.meals.push({ id: uid("meal"), name, ingredients, sides, method: normaliseMethod($("#meal-method").value), tags: normaliseMealTags(editingMealTags), rating: normaliseMealRating(editingMealRating), sourceUrl: editingMealSourceUrl || null, libraryRecipeId: null, librarySourceId: null, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null });
     touchSharedState(now);
   }
   saveData();
@@ -2452,10 +2675,11 @@ function consolidateShopping() {
 
   ["dinner", "lunch"].forEach(slotType => {
     week.slots[slotType].forEach(assignments => {
-      const mealIds = new Set(assignments.map(assignment => assignment.mealId).filter(id => id && id !== NO_MEAL));
+      const mealIds = new Set(assignments.map(assignment => assignment.mealId).filter(id => id && id !== NO_MEAL && id !== NOT_EATING));
       mealIds.forEach(mealId => {
         const meal = findMeal(mealId);
         meal?.ingredients.forEach(ing => push({ ...ing, source: meal.name }));
+        normaliseMealSides(meal?.sides).filter(side => side.includeInShop && side.itemId).forEach(side => push({ itemId: side.itemId, qty: side.qty, unit: side.unit, source: `${meal.name} · ${side.name}` }));
       });
     });
   });
@@ -2828,13 +3052,21 @@ function openSplitMembers(dayIndex, slotType, assignmentId = null, returnMode = 
   splitDayIndex = Number(dayIndex);
   splitSlotType = slotType === "lunch" ? "lunch" : "dinner";
   splitAssignmentId = assignmentId || null;
-  splitReturnMode = ["picker", "alternative", "remove"].includes(returnMode) ? returnMode : "card";
+  splitReturnMode = ["picker", "alternative", "remove", "notEating"].includes(returnMode) ? returnMode : "card";
 
   const week = getWeek();
   const assignments = getSlotAssignments(week, splitSlotType, splitDayIndex);
   const assignment = splitAssignmentId ? assignments.find(entry => entry.id === splitAssignmentId) : null;
 
-  if (splitReturnMode === "alternative") {
+  if (splitReturnMode === "notEating") {
+    const alreadyNotEating = new Set(assignments.filter(entry => entry.mealId === NOT_EATING).flatMap(assignmentMemberIds));
+    const availableMembers = members.filter(member => !alreadyNotEating.has(member.id));
+    pendingAudienceAll = false;
+    pendingSplitMemberIds = [];
+    $("#split-members-title").textContent = `Who is not eating ${splitSlotType}?`;
+    $("#split-members-overlay .sheet-copy").textContent = "Choose one or more people. They’ll be removed from any meal for this slot and shown as Not eating.";
+    $("#split-member-list").innerHTML = availableMembers.map(member => `<button type="button" class="split-member-choice" data-split-member="${escapeHtml(member.id)}">${memberAvatar(member)}<span><strong>${escapeHtml(member.name)}</strong><small>${member.role === "child" ? "Child" : "Adult"}</small></span><span class="member-check">✓</span></button>`).join("");
+  } else if (splitReturnMode === "alternative") {
     pendingAudienceAll = false;
     pendingSplitMemberIds = [];
     const meal = findMeal(pendingAlternativeMealId);
@@ -2845,14 +3077,14 @@ function openSplitMembers(dayIndex, slotType, assignmentId = null, returnMode = 
     const sourceIndex = assignments.findIndex(entry => entry.id === splitAssignmentId);
     const source = sourceIndex >= 0 ? assignments[sourceIndex] : null;
     const target = sourceIndex === 0 ? assignments[1] : assignments[0];
-    const sourceMeal = source ? findMeal(source.mealId) : null;
-    const targetMeal = target ? findMeal(target.mealId) : null;
+    const sourceName = assignmentDisplayName(source);
+    const targetName = assignmentDisplayName(target);
     const sourceMembers = source ? assignmentMemberIds(source).map(findMember).filter(Boolean) : [];
     pendingAudienceAll = false;
     pendingSplitMemberIds = [];
-    $("#split-members-title").textContent = sourceMeal ? `Remove people from ${sourceMeal.name}` : "Remove people";
-    $("#split-members-overlay .sheet-copy").textContent = targetMeal
-      ? `Choose who to move. They’ll be added to ${targetMeal.name}.`
+    $("#split-members-title").textContent = `Move people from ${sourceName}`;
+    $("#split-members-overlay .sheet-copy").textContent = target
+      ? `Choose who to move. They’ll be added to ${targetName}.`
       : "Choose who to move to the other meal.";
     $("#split-member-list").innerHTML = sourceMembers.map(member => `<button type="button" class="split-member-choice" data-split-member="${escapeHtml(member.id)}">${memberAvatar(member)}<span><strong>${escapeHtml(member.name)}</strong><small>${member.role === "child" ? "Child" : "Adult"}</small></span><span class="member-check">✓</span></button>`).join("");
   } else {
@@ -2879,14 +3111,14 @@ function openSplitMembers(dayIndex, slotType, assignmentId = null, returnMode = 
 }
 
 function selectAllSplitMembers() {
-  if (splitReturnMode === "alternative" || splitReturnMode === "remove") return;
+  if (splitReturnMode === "alternative" || splitReturnMode === "remove" || splitReturnMode === "notEating") return;
   pendingAudienceAll = true;
   pendingSplitMemberIds = [];
   updateSplitMemberSelection();
 }
 
 function toggleSplitMember(memberId) {
-  if (splitReturnMode === "alternative" || splitReturnMode === "remove") {
+  if (splitReturnMode === "alternative" || splitReturnMode === "remove" || splitReturnMode === "notEating") {
     const set = new Set(pendingSplitMemberIds);
     if (set.has(memberId)) set.delete(memberId); else set.add(memberId);
     pendingSplitMemberIds = Array.from(set);
@@ -2923,6 +3155,11 @@ function updateSplitMemberSelection() {
 function updateSplitMemberButton() {
   const button = $("#split-members-next");
   const count = pendingAudienceAll ? activeMembers().length : pendingSplitMemberIds.length;
+  if (splitReturnMode === "notEating") {
+    button.disabled = count < 1;
+    button.textContent = count ? `Mark ${count} not eating` : "Choose who is not eating";
+    return;
+  }
   if (splitReturnMode === "alternative") {
     button.disabled = count < 1 || count >= activeMembers().length;
     button.textContent = count ? `Use for ${count} ${count === 1 ? "person" : "people"}` : "Choose who is having it";
@@ -2939,6 +3176,21 @@ function updateSplitMemberButton() {
 
 function continueSplitMeal() {
   if (!pendingAudienceAll && !pendingSplitMemberIds.length) return;
+
+  if (splitReturnMode === "notEating") {
+    const week = getWeek();
+    const assignments = getSlotAssignments(week, splitSlotType, splitDayIndex);
+    const now = new Date().toISOString();
+    week.slots[splitSlotType][splitDayIndex] = applyNotEatingToAudience(assignments, pendingSplitMemberIds, now);
+    touchWeekField(week, splitSlotType, splitDayIndex, now);
+    syncLegacyWeekSlots(week);
+    saveData({ immediateCloud: true });
+    closeOverlay("split-members-overlay");
+    closeOverlay("meal-picker-overlay");
+    renderAll();
+    showToast("Marked not eating");
+    return;
+  }
 
   if (splitReturnMode === "alternative") {
     if (!pendingAlternativeMealId || pendingSplitMemberIds.length >= activeMembers().length) return;
@@ -3453,13 +3705,16 @@ function buildSharedWeekPayload() {
   const week = getWeek();
   const usedMealIds = new Set();
   ["dinner", "lunch"].forEach(slotType => week.slots[slotType].forEach(assignments => assignments.forEach(assignment => {
-    if (assignment.mealId && assignment.mealId !== NO_MEAL) usedMealIds.add(assignment.mealId);
+    if (assignment.mealId && assignment.mealId !== NO_MEAL && assignment.mealId !== NOT_EATING) usedMealIds.add(assignment.mealId);
   })));
   const meals = data.meals
     .filter(meal => !meal.deletedAt && usedMealIds.has(meal.id))
-    .map(meal => ({ id: meal.id, name: meal.name, ingredients: clone(meal.ingredients || []), method: clone(normaliseMethod(meal.method)), tags: clone(normaliseMealTags(meal.tags)), rating: normaliseMealRating(meal.rating), sourceUrl: meal.sourceUrl || null, libraryRecipeId: meal.libraryRecipeId || null, librarySourceId: meal.librarySourceId || null }));
+    .map(meal => ({ id: meal.id, name: meal.name, ingredients: clone(meal.ingredients || []), sides: clone(normaliseMealSides(meal.sides)), method: clone(normaliseMethod(meal.method)), tags: clone(normaliseMealTags(meal.tags)), rating: normaliseMealRating(meal.rating), sourceUrl: meal.sourceUrl || null, libraryRecipeId: meal.libraryRecipeId || null, librarySourceId: meal.librarySourceId || null }));
   const usedItemIds = new Set();
-  meals.forEach(meal => meal.ingredients.forEach(ingredient => usedItemIds.add(ingredient.itemId)));
+  meals.forEach(meal => {
+    meal.ingredients.forEach(ingredient => usedItemIds.add(ingredient.itemId));
+    normaliseMealSides(meal.sides).filter(side => side.includeInShop && side.itemId).forEach(side => usedItemIds.add(side.itemId));
+  });
   const items = data.items
     .filter(item => !item.deletedAt && usedItemIds.has(item.id))
     .map(item => ({ id: item.id, name: item.name, category: item.category }));
@@ -3484,8 +3739,8 @@ function buildSharedWeekPayload() {
 
 async function shareCurrentWeek() {
   const payload = buildSharedWeekPayload();
-  const mealCount = payload.days.reduce((sum, day) => sum + day.dinnerAssignments.filter(assignment => assignment.mealId !== NO_MEAL).length, 0);
-  const lunchCount = payload.days.reduce((sum, day) => sum + day.lunchAssignments.length, 0);
+  const mealCount = payload.days.reduce((sum, day) => sum + day.dinnerAssignments.filter(assignment => assignment.mealId !== NO_MEAL && assignment.mealId !== NOT_EATING).length, 0);
+  const lunchCount = payload.days.reduce((sum, day) => sum + day.lunchAssignments.filter(assignment => assignment.mealId !== NO_MEAL && assignment.mealId !== NOT_EATING).length, 0);
   const result = await shareOrDownloadJson(
     payload,
     `MealPlanner-week-${payload.startDate}.json`,
@@ -3535,15 +3790,20 @@ async function importSharedWeekFile(file) {
       const ingredients = Array.isArray(sharedMeal.ingredients) ? sharedMeal.ingredients.map(ingredient => ({
         itemId: itemMap.get(ingredient.itemId), qty: normaliseName(ingredient.qty), unit: normaliseName(ingredient.unit)
       })).filter(ingredient => ingredient.itemId) : [];
+      const sides = normaliseMealSides(sharedMeal.sides).map(side => ({
+        ...side,
+        itemId: side.itemId ? (itemMap.get(side.itemId) || null) : null
+      }));
       let meal = findMealByName(name);
       const now = new Date().toISOString();
       const sharedTags = normaliseMealTags(sharedMeal.tags || []);
       const sharedRating = normaliseMealRating(sharedMeal.rating || 0);
       if (!meal) {
-        meal = { id: uid("meal"), name, ingredients, method: normaliseMethod(sharedMeal.method), tags: sharedTags, rating: sharedRating, sourceUrl: sharedMeal.sourceUrl || null, libraryRecipeId: sharedMeal.libraryRecipeId || null, librarySourceId: sharedMeal.librarySourceId || null, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null };
+        meal = { id: uid("meal"), name: titleStyleName(name), ingredients, sides, method: normaliseMethod(sharedMeal.method), tags: sharedTags, rating: sharedRating, sourceUrl: sharedMeal.sourceUrl || null, libraryRecipeId: sharedMeal.libraryRecipeId || null, librarySourceId: sharedMeal.librarySourceId || null, createdAt: now, updatedAt: now, updatedBy: currentMemberId(), deletedAt: null, lastUsedAt: null };
         data.meals.push(meal);
       } else {
         meal.ingredients = ingredients;
+        meal.sides = sides;
         meal.method = normaliseMethod(sharedMeal.method);
         meal.tags = sharedTags;
         meal.rating = sharedRating;
@@ -3571,7 +3831,7 @@ async function importSharedWeekFile(file) {
       }
       const source = slotType === "dinner" ? day.dinnerAssignments : day.lunchAssignments;
       return (Array.isArray(source) ? source : []).map(assignment => {
-        const mappedMealId = assignment.mealId === NO_MEAL ? NO_MEAL : mealMap.get(assignment.mealId);
+        const mappedMealId = assignment.mealId === NO_MEAL ? NO_MEAL : assignment.mealId === NOT_EATING ? NOT_EATING : mealMap.get(assignment.mealId);
         if (!mappedMealId) return null;
         let memberIds = null;
         if (Array.isArray(assignment.memberIds) && memberMap.size) memberIds = assignment.memberIds.map(id => memberMap.get(id)).filter(Boolean);
@@ -3817,6 +4077,7 @@ function dayHasReusableContent(week, dayIndex) {
 function assignmentMealNames(assignments) {
   return (assignments || []).map(assignment => {
     if (assignment.mealId === NO_MEAL) return "No meal";
+    if (assignment.mealId === NOT_EATING) return "Not eating";
     return findMeal(assignment.mealId)?.name || "";
   }).filter(Boolean);
 }
@@ -3916,7 +4177,7 @@ function openSavedDays(dayIndex) {
 function applySavedDay(savedDay, dayIndex) {
   const week = getWeek();
   const stamp = new Date().toISOString();
-  const validAssignments = assignments => freshAssignments((assignments || []).filter(assignment => assignment.mealId === NO_MEAL || !!findMeal(assignment.mealId)), stamp);
+  const validAssignments = assignments => freshAssignments((assignments || []).filter(assignment => assignment.mealId === NO_MEAL || assignment.mealId === NOT_EATING || !!findMeal(assignment.mealId)), stamp);
   week.slots.dinner[dayIndex] = validAssignments(savedDay.slots.dinner);
   week.slots.lunch[dayIndex] = validAssignments(savedDay.slots.lunch);
   touchWeekField(week, "dinner", dayIndex, stamp);
@@ -4251,6 +4512,10 @@ function bindEvents() {
   $("#week-settings").addEventListener("click", openWeekSettings);
   $("#settings-form").addEventListener("submit", saveWeekSettings);
   $("#remove-people").addEventListener("click", openRemovePeopleFromMeal);
+  $("#not-eating").addEventListener("click", () => {
+    closeOverlay("meal-picker-overlay");
+    openSplitMembers(pickerDayIndex, pickerSlotType, null, "notEating", []);
+  });
   $("#save-day-form").addEventListener("submit", saveCurrentDayTemplate);
   $("#copy-week-plan").addEventListener("click", openCopyWeek);
   $("#copy-week-date").addEventListener("change", updateCopyWeekTarget);
@@ -4287,11 +4552,26 @@ function bindEvents() {
   $("#recipe-photo-files").addEventListener("change", selectRecipePhotos);
   $("#recipe-photo-read").addEventListener("click", importRecipeFromPhotos);
   $("#add-ingredient").addEventListener("click", () => addIngredientRow({}));
+  $("#add-side").addEventListener("click", () => addSideRow({ includeInShop: true }));
   $("#ingredient-list").addEventListener("click", event => { const remove = event.target.closest(".remove-ingredient"); if (remove) remove.closest("[data-ingredient-row]").remove(); });
+  $("#side-list").addEventListener("click", event => { const remove = event.target.closest(".remove-side"); if (remove) remove.closest("[data-side-row]").remove(); });
+  $("#side-list").addEventListener("change", event => {
+    if (event.target.classList.contains("side-include-shop")) {
+      event.target.closest("[data-side-row]")?.classList.toggle("include-shop", event.target.checked);
+      return;
+    }
+    if (event.target.classList.contains("side-name")) {
+      const item = findItemByName(event.target.value);
+      if (item) event.target.closest("[data-side-row]").querySelector(".side-category").value = item.category;
+    }
+  });
   $("#ingredient-list").addEventListener("change", event => {
     if (!event.target.classList.contains("ingredient-name")) return;
     const item = findItemByName(event.target.value);
     if (item) event.target.closest("[data-ingredient-row]").querySelector(".ingredient-category").value = item.category;
+  });
+  document.addEventListener("input", event => {
+    if (event.target.matches("#meal-name, .ingredient-name, .side-name, #library-admin-title")) applyTitleStyleToInput(event.target);
   });
   $("#meal-form").addEventListener("submit", saveMealFromForm);
   $("#delete-meal").addEventListener("click", deleteCurrentMeal);
@@ -4387,7 +4667,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.46", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.47", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {

@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png?v=icon2">
-  <link rel="stylesheet" href="./style.css?v=1.0.46">
+  <link rel="stylesheet" href="./style.css?v=1.0.47">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -183,6 +183,7 @@
       </div>
       <div class="picker-clear-actions">
         <button class="secondary-button picker-remove-people-button" id="remove-people" type="button" hidden>Remove people</button>
+        <button class="secondary-button picker-not-eating-button" id="not-eating" type="button" hidden>Mark not eating</button>
         <button class="secondary-button picker-clear-button" id="clear-day" type="button">Clear dinner</button>
         <button class="danger-quiet-button picker-no-meal-button" id="no-dinner" type="button">No dinner / eating out</button>
       </div>
@@ -294,6 +295,15 @@
         </div>
         <div class="ingredient-list" id="ingredient-list"></div>
 
+        <div class="ingredients-heading sides-heading">
+          <div>
+            <strong>Sides</strong>
+            <small>Optional — each side can be added to the shop.</small>
+          </div>
+          <button class="small-add-button" id="add-side" type="button">＋ Add</button>
+        </div>
+        <div class="side-list" id="side-list"></div>
+
         <div class="method-editor-heading">
           <div><strong>Method</strong><small>Optional — put each step on a new line.</small></div>
         </div>
@@ -381,6 +391,9 @@
         <label class="field-label spaced-label" for="library-admin-ingredients">Ingredients</label>
         <p class="settings-note">One per line: quantity | unit | ingredient | shopping category</p>
         <textarea class="text-input library-admin-textarea" id="library-admin-ingredients" rows="8"></textarea>
+        <label class="field-label spaced-label" for="library-admin-sides">Sides</label>
+        <p class="settings-note">Optional. One per line: side | quantity | unit | shopping category | shop/no-shop</p>
+        <textarea class="text-input library-admin-textarea" id="library-admin-sides" rows="4"></textarea>
         <label class="field-label spaced-label" for="library-admin-method">Method</label>
         <p class="settings-note">One step per line.</p>
         <textarea class="text-input library-admin-textarea" id="library-admin-method" rows="8"></textarea>
@@ -813,7 +826,7 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.46"></script>
-  <script type="module" src="./firebase-sync.js?v=1.0.46"></script>
+  <script src="./app.js?v=1.0.47"></script>
+  <script type="module" src="./firebase-sync.js?v=1.0.47"></script>
 </body>
 </html>

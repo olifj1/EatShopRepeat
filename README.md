@@ -1,7 +1,9 @@
-# MealPlanner v1.0.46
+# MealPlanner v1.0.47
 
-Small iPhone layout polish. The PWA status-bar/overscroll background now matches the warm page background instead of showing a darker strip when the screen is pulled down.
+Adds title-style capitalisation while typing meal names and recipe ingredients, plus optional meal sides with a compact editor and optional shopping-list contribution.
 
-The bottom navigation safe-area spacing is also slightly reduced so the Week, Meals and Shop controls sit a little lower while retaining room for the iPhone home indicator.
+Household members can now be marked **Not eating** for an individual lunch or dinner. The state uses the existing assignment system, stays visible with member initials, and is preserved by saved weeks/days, sharing, backups and household sync.
 
-No meal-planning, recipe-library or Firebase sync behaviour changed in this release.
+The website recipe importer is more tolerant of WordPress/recipe-card Markdown, including grouped ingredient headings and embedded input/button markers. This fixes the Roasted Courgette Soup recipe from The Veg Space and improves quantity/unit parsing for long-form tablespoon/teaspoon units.
+
+Firebase transport code was not changed.
