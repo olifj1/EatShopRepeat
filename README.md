@@ -1,10 +1,9 @@
-# MealPlanner v1.0.51
+# MealPlanner v1.0.52
 
-Recipe URL importer parser fix.
+Layout fix for the Meals list.
 
-- Uses the v1.0.50 device diagnostics to handle Reader responses where a WordPress recipe card has been flattened and the literal **Ingredients** heading is missing.
-- When a **Recipe** section is present, the importer can now identify a compact cluster of quantity-led ingredient bullets instead of rejecting the page.
-- If the flattened card also loses its Instructions heading, subsequent recipe-style bullet steps can be recovered as the cooking method.
-- Import diagnostics now also report Instructions headings, quantity-led bullet count, and detected ingredient-cluster size.
-- Existing heading-based recipe importing remains the primary path and is unchanged for pages that already import correctly.
-- No planner, Firebase, shopping, sides, saved-week/day, recipe-library, or household behaviour was intentionally changed.
+- Long meal names now wrap to a maximum of two lines and then truncate cleanly.
+- Meal cards are constrained to the phone viewport and can no longer widen the whole list.
+- Ingredient previews remain clipped inside each card.
+- Cook/Edit controls stay visible at the right edge of every meal card.
+- No Firebase sync or recipe-import behaviour changed in this release.
