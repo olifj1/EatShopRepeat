@@ -1077,8 +1077,12 @@ body.modal-open { overflow: hidden; }
   pointer-events: none;
 }
 
+#meal-picker-overlay {
+  padding-top: max(env(safe-area-inset-top), 6px);
+}
 #meal-picker-overlay .sheet {
-  height: min(82dvh, 760px);
+  height: calc(100dvh - max(env(safe-area-inset-top), 6px));
+  max-height: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1399,10 +1403,6 @@ body.modal-open { overflow: hidden; }
 .picker-assignment-avatars { display: flex; align-items: center; min-width: 0; }
 .picker-assignment-avatars .member-avatar { width: 30px; height: 30px; font-size: 9px; margin-left: -4px; }
 .picker-assignment-avatars .member-avatar:first-child { margin-left: 0; }
-.picker-clear-actions .picker-remove-people-button { min-height: 44px; margin-top: 0; }
-.picker-clear-actions .picker-remove-people-button[hidden] { display: none; }
-.picker-clear-actions:has(.picker-no-meal-button[hidden]):has(.picker-remove-people-button:not([hidden])) { grid-template-columns: 1fr 1fr; }
-.picker-clear-actions:has(.picker-no-meal-button[hidden]):has(.picker-remove-people-button[hidden]) { grid-template-columns: 1fr; }
 
 
 /* v1.0.46 — match iOS status/overscroll colour and lower bottom navigation slightly */

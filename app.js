@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.48";
+const APP_VERSION = "1.0.49";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -1441,9 +1441,10 @@ function openMealPicker(dayIndex, slotType = "dinner", assignmentId = null, mode
   const hasAvailableNotEatingMembers = activeMembers().some(member => !assignments.some(entry => entry.mealId === NOT_EATING && assignmentMemberIds(entry).includes(member.id)));
   notEatingButton.hidden = pickerMode === "alternative" || pickerMode === "side" || !activeMembers().length || !hasMealAssignments || !hasAvailableNotEatingMembers || assignment?.mealId === NOT_EATING;
   const rejoinButton = $("#rejoin-main");
-  const hasMainMeal = assignments.some(entry => entry.mealId !== NO_MEAL && entry.mealId !== NOT_EATING && !!findMeal(entry.mealId));
+  const hasOtherMainMeal = assignments.some((entry, index) => index !== assignmentIndex && entry.mealId !== NO_MEAL && entry.mealId !== NOT_EATING && !!findMeal(entry.mealId));
   const canRestoreMainMeal = assignment?.mealId === NOT_EATING && !!findMeal(assignment.returnMealId);
-  rejoinButton.hidden = pickerMode === "side" || assignment?.mealId !== NOT_EATING || (!hasMainMeal && !canRestoreMainMeal);
+  const canRejoinMain = !!assignment && assignment.mealId !== NO_MEAL && ((assignmentIndex > 0 && hasOtherMainMeal) || canRestoreMainMeal);
+  rejoinButton.hidden = pickerMode === "side" || !canRejoinMain;
   renderPickerAssignmentFooter(assignments, assignment, assignmentIndex);
   $("#picker-search").value = "";
   pickerTagFilters = [];
@@ -1455,18 +1456,15 @@ function openMealPicker(dayIndex, slotType = "dinner", assignmentId = null, mode
 function renderPickerAssignmentFooter(assignments, assignment, assignmentIndex) {
   const footer = $("#picker-assignment-footer");
   const avatars = $("#picker-assignment-avatars");
-  const removePeople = $("#remove-people");
-  if (!footer || !avatars || !removePeople) return;
+  if (!footer || !avatars) return;
   const validAssignment = !!assignment && assignment.mealId !== NO_MEAL;
   footer.hidden = !validAssignment || pickerMode === "alternative" || pickerMode === "side";
   if (!validAssignment || pickerMode === "alternative" || pickerMode === "side") {
     avatars.innerHTML = "";
-    removePeople.hidden = true;
     return;
   }
   const members = assignmentMemberIds(assignment).map(findMember).filter(Boolean);
   avatars.innerHTML = members.map(member => memberAvatar(member)).join("");
-  removePeople.hidden = assignments.length < 2 || assignmentIndex < 0 || !members.length;
 }
 
 function assignmentDisplayName(assignment) {
@@ -1681,11 +1679,12 @@ function removeSideMealFromAssignment(dayIndex, slotType, assignmentId, sideMeal
   renderAll();
 }
 
-function rejoinNotEatingMembers(assignments, assignmentId, memberIds, now) {
-  const source = assignments.find(assignment => assignment.id === assignmentId && assignment.mealId === NOT_EATING);
-  let primary = assignments.find(assignment => assignment.mealId !== NO_MEAL && assignment.mealId !== NOT_EATING && !!findMeal(assignment.mealId));
-  if (!source) return assignments;
-  if (!primary && source.returnMealId && findMeal(source.returnMealId)) {
+function rejoinMainMealMembers(assignments, assignmentId, memberIds, now) {
+  const sourceIndex = assignments.findIndex(assignment => assignment.id === assignmentId);
+  const source = sourceIndex >= 0 ? assignments[sourceIndex] : null;
+  if (!source || source.mealId === NO_MEAL) return assignments;
+  let primary = assignments.find((assignment, index) => index !== sourceIndex && assignment.mealId !== NO_MEAL && assignment.mealId !== NOT_EATING && !!findMeal(assignment.mealId));
+  if (!primary && source.mealId === NOT_EATING && source.returnMealId && findMeal(source.returnMealId)) {
     primary = makeAssignment(source.returnMealId, [], now, null, currentMemberId());
   }
   if (!primary) return assignments;
@@ -1696,7 +1695,6 @@ function rejoinNotEatingMembers(assignments, assignmentId, memberIds, now) {
   const mergedPrimary = Array.from(new Set([...assignmentMemberIds(primary), ...selected]));
   const next = assignments.map(assignment => ({ ...assignment }));
   let primaryIndex = next.findIndex(assignment => assignment.id === primary.id);
-  const sourceIndex = next.findIndex(assignment => assignment.id === source.id);
   if (primaryIndex < 0) {
     next.unshift(primary);
     primaryIndex = 0;
@@ -1944,6 +1942,11 @@ function instructionLinesFromValue(value) {
 }
 
 function visibleMethodFromHtml(doc) {
+  const pluginSteps = Array.from(doc.querySelectorAll(
+    '[itemprop="recipeInstructions"] li, .wprm-recipe-instruction, .tasty-recipes-instructions li, .mv-create-instructions li'
+  )).map(node => normaliseName(node.textContent)).filter(Boolean);
+  if (pluginSteps.length) return normaliseMethod(pluginSteps);
+
   const headings = Array.from(doc.querySelectorAll("h1,h2,h3,h4,h5,h6"));
   const methodHeading = headings.find(node => /^(method|directions|instructions|preparation)\b/i.test(normaliseName(node.textContent).replace(/^[^A-Za-z0-9]+/, "")));
   if (!methodHeading) return [];
@@ -1982,44 +1985,55 @@ function recipeFromHtml(html, sourceUrl) {
   // markup but no JSON-LD. Read their H1 and Ingredients list directly.
   const headings = Array.from(doc.querySelectorAll("h1,h2,h3,h4,h5,h6"));
   const ingredientsHeading = headings.find(node => /^ingredients\b/i.test(normaliseName(node.textContent).replace(/^[^A-Za-z0-9]+/, "")));
-  if (!ingredientsHeading) return null;
   const endHeading = /^(method|directions|instructions|preparation|nutrition|notes?)\b/i;
   const ingredients = [];
-  let node = ingredientsHeading.nextElementSibling;
-  while (node) {
-    if (/^H[1-6]$/.test(node.tagName || "")) {
-      const heading = normaliseName(node.textContent);
-      if (endHeading.test(heading)) break;
+  if (ingredientsHeading) {
+    let node = ingredientsHeading.nextElementSibling;
+    while (node) {
+      if (/^H[1-6]$/.test(node.tagName || "")) {
+        const heading = normaliseName(node.textContent);
+        if (endHeading.test(heading)) break;
+      }
+      if (node.matches?.("ul,ol")) {
+        node.querySelectorAll(":scope > li").forEach(li => {
+          const text = normaliseName(li.textContent);
+          if (text) ingredients.push(text);
+        });
+      } else {
+        node.querySelectorAll?.("li").forEach(li => {
+          const text = normaliseName(li.textContent);
+          if (text) ingredients.push(text);
+        });
+      }
+      node = node.nextElementSibling;
     }
-    if (node.matches?.("ul,ol")) {
-      node.querySelectorAll(":scope > li").forEach(li => {
+    if (!ingredients.length) {
+      ingredientsHeading.parentElement?.querySelectorAll("ul li, ol li").forEach(li => {
         const text = normaliseName(li.textContent);
         if (text) ingredients.push(text);
       });
-    } else {
-      node.querySelectorAll?.("li").forEach(li => {
-        const text = normaliseName(li.textContent);
-        if (text) ingredients.push(text);
-      });
     }
-    node = node.nextElementSibling;
   }
   if (!ingredients.length) {
-    ingredientsHeading.parentElement?.querySelectorAll("ul li, ol li").forEach(li => {
-      const text = normaliseName(li.textContent);
+    doc.querySelectorAll(
+      '[itemprop="recipeIngredient"], .wprm-recipe-ingredient, .tasty-recipes-ingredients li, .mv-create-ingredients li'
+    ).forEach(node => {
+      const text = normaliseName(node.textContent);
       if (text) ingredients.push(text);
     });
   }
   if (!ingredients.length) return null;
 
   const h1s = Array.from(doc.querySelectorAll("h1")).map(node => normaliseName(node.textContent)).filter(Boolean);
+  const pluginName = normaliseName(doc.querySelector('[itemprop="name"].wprm-recipe-name, .wprm-recipe-name, .tasty-recipes-title, .mv-create-title')?.textContent || "");
   const metaTitle = normaliseName(doc.querySelector('meta[property="og:title"]')?.content || doc.title || "").replace(/\s+[|–—-]\s+[^|–—-]+$/, "");
+  const pluginYield = normaliseName(doc.querySelector('[itemprop="recipeYield"], .wprm-recipe-servings')?.textContent || "");
   const yieldMatch = /\b(?:yield|serves|makes)\s*:\s*([^\n|]{1,30})/i.exec(doc.body?.innerText || "");
   return {
-    name: h1s[0] || metaTitle || "Imported recipe",
+    name: pluginName || h1s[0] || metaTitle || "Imported recipe",
     ingredients: Array.from(new Set(ingredients)),
     method: visibleMethodFromHtml(doc),
-    serves: yieldMatch ? normaliseName(yieldMatch[1]) : "",
+    serves: pluginYield || (yieldMatch ? normaliseName(yieldMatch[1]) : ""),
     sourceUrl
   };
 }
@@ -2040,16 +2054,29 @@ function markdownHeadingText(line) {
   return cleanMarkdownRecipeText(match[1]).replace(/^[^A-Za-z0-9]+/, "").trim();
 }
 
+function recipeSectionText(line) {
+  const heading = markdownHeadingText(line);
+  if (heading) return heading;
+  const raw = String(line || "").trim();
+  if (!raw || raw.length > 90) return "";
+  const text = cleanMarkdownRecipeText(raw.replace(/^[-*+]\s+/, ""))
+    .replace(/^[^A-Za-z0-9]+/, "")
+    .replace(/[:：]$/, "")
+    .trim();
+  return /^(recipe|ingredients?|method|directions|instructions|preparation|nutrition|notes?|video)\b/i.test(text) ? text : "";
+}
+
 function recipeFromMarkdown(markdown, sourceUrl) {
   const lines = String(markdown || "").replace(/\r/g, "").split("\n");
   const headingAt = index => markdownHeadingText(lines[index]);
-  const recipeHeadingIndex = lines.findIndex((line, index) => /^recipe\b/i.test(headingAt(index)));
+  const sectionAt = index => recipeSectionText(lines[index]);
+  const recipeHeadingIndex = lines.findIndex((line, index) => /^recipe\b/i.test(sectionAt(index)));
   let start = -1;
   for (let i = Math.max(0, recipeHeadingIndex); i < lines.length; i += 1) {
-    if (/^ingredients?\b/i.test(headingAt(i))) { start = i; break; }
+    if (/^ingredients?\b/i.test(sectionAt(i))) { start = i; break; }
   }
   if (start < 0) {
-    start = lines.findIndex((line, index) => /^ingredients?\b/i.test(headingAt(index)));
+    start = lines.findIndex((line, index) => /^ingredients?\b/i.test(sectionAt(index)));
   }
   if (start < 0) return null;
 
@@ -2086,17 +2113,20 @@ function recipeFromMarkdown(markdown, sourceUrl) {
   const flush = () => { if (current) collected.push(cleanMarkdownRecipeText(current)); current = ""; };
   for (let i = start + 1; i < lines.length; i += 1) {
     const raw = lines[i].trim();
+    const section = sectionAt(i);
     const heading = headingAt(i);
-    if (heading) {
-      if (endHeadings.test(heading)) break;
+    if (section && endHeadings.test(section)) break;
+    if (heading || (section && !/^ingredients?\b/i.test(section))) {
       flush();
       continue;
     }
     if (!raw) continue;
     const isBullet = /^[-*+]\s+/.test(raw);
+    const hasRecipeInput = /\[(?:Input|Checkbox|Button:[^\]]*)\]/i.test(raw);
     const text = cleanMarkdownRecipeText(raw.replace(/^[-*+]\s+/, ""));
     if (!text || /^(units:?|metric\s*us|us conversions|loading\.{0,3}|ad|1x\s*2x\s*3x)$/i.test(text) || /^not all measurements/i.test(text) || /^cook mode\b/i.test(text)) continue;
-    if (isBullet) {
+    const looksLikeIngredient = isBullet || hasRecipeInput || /^(?:\d+(?:[.,]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])\b/.test(text);
+    if (looksLikeIngredient) {
       flush();
       current = text;
     } else if (current && text.length < 120 && !/^(keep the screen|print|save recipe)/i.test(text)) {
@@ -2108,14 +2138,16 @@ function recipeFromMarkdown(markdown, sourceUrl) {
 
   let methodStart = -1;
   for (let i = start + 1; i < lines.length; i += 1) {
-    if (/^(method|directions|instructions|preparation)\b/i.test(headingAt(i))) { methodStart = i; break; }
+    if (/^(method|directions|instructions|preparation)\b/i.test(sectionAt(i))) { methodStart = i; break; }
   }
   const method = [];
   if (methodStart >= 0) {
     for (let i = methodStart + 1; i < lines.length; i += 1) {
       const raw = lines[i].trim();
+      const section = sectionAt(i);
       const heading = headingAt(i);
-      if (heading) break;
+      if (section && /^(notes?|nutrition|rate this recipe|video)\b/i.test(section)) break;
+      if (heading && !/^(step\s*\d+|instructions?)\b/i.test(heading)) break;
       if (!raw) continue;
       const text = cleanMarkdownRecipeText(raw.replace(/^\d+[.)]\s+/, "").replace(/^[-*+]\s+/, ""));
       if (text && !/^(notes?|nutrition|rate this recipe|video)\b/i.test(text)) method.push(text);
@@ -2207,18 +2239,30 @@ async function extractRecipeFromUrl(rawUrl) {
     }
   } catch (_) {}
 
-  // Static PWAs cannot read many third-party pages because of CORS. For this
-  // prototype, Reader is a fetch bridge only; parsing below remains rule-based.
-  let response;
+  // Reader works well for many recipe sites and avoids normal browser CORS.
+  // Its markdown varies between publishers, so the parser accepts both normal
+  // bullet lists and recipe-card [Input] lines.
   try {
-    response = await fetchWithRecipeTimeout(`https://r.jina.ai/${url.href}`, 18000);
-  } catch (_) {
-    throw new Error("The recipe page could not be reached. Check the link and try again.");
-  }
-  if (!response.ok) throw new Error(`The recipe page could not be read (${response.status}).`);
-  const recipe = recipeFromMarkdown(await response.text(), url.href);
-  if (!recipe) throw new Error("I could open that page, but couldn't find a clear ingredients section.");
-  return recipe;
+    const reader = await fetchWithRecipeTimeout(`https://r.jina.ai/${url.href}`, 18000);
+    if (reader.ok) {
+      const recipe = recipeFromMarkdown(await reader.text(), url.href);
+      if (recipe) return recipe;
+    }
+  } catch (_) {}
+
+  // Some WordPress recipe cards lose their list structure in Reader output.
+  // Fall back to a raw HTML CORS bridge so we can use the page's JSON-LD or
+  // visible Ingredients/Instructions markup with the same generic parser.
+  try {
+    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url.href)}`;
+    const bridged = await fetchWithRecipeTimeout(proxyUrl, 18000);
+    if (bridged.ok) {
+      const recipe = recipeFromHtml(await bridged.text(), url.href);
+      if (recipe) return recipe;
+    }
+  } catch (_) {}
+
+  throw new Error("I could open that page, but couldn't find a clear ingredients section.");
 }
 
 function setRecipeImportStatus(message = "", isError = false) {
@@ -3099,14 +3143,15 @@ function openSplitMembers(dayIndex, slotType, assignmentId = null, returnMode = 
   const assignment = splitAssignmentId ? assignments.find(entry => entry.id === splitAssignmentId) : null;
 
   if (splitReturnMode === "rejoinMain") {
-    const source = assignments.find(entry => entry.id === splitAssignmentId && entry.mealId === NOT_EATING);
-    const primary = assignments.find(entry => entry.mealId !== NO_MEAL && entry.mealId !== NOT_EATING && !!findMeal(entry.mealId));
+    const sourceIndex = assignments.findIndex(entry => entry.id === splitAssignmentId);
+    const source = sourceIndex >= 0 ? assignments[sourceIndex] : null;
+    const primary = assignments.find((entry, index) => index !== sourceIndex && entry.mealId !== NO_MEAL && entry.mealId !== NOT_EATING && !!findMeal(entry.mealId));
     const returnMeal = primary ? findMeal(primary.mealId) : findMeal(source?.returnMealId);
     const sourceMembers = source ? assignmentMemberIds(source).map(findMember).filter(Boolean) : [];
     pendingAudienceAll = false;
     pendingSplitMemberIds = [];
     $("#split-members-title").textContent = "Rejoin main meal";
-    $("#split-members-overlay .sheet-copy").textContent = returnMeal ? `Choose who is eating ${returnMeal.name} after all.` : "Choose who should rejoin the main meal.";
+    $("#split-members-overlay .sheet-copy").textContent = returnMeal ? `Choose who should move back to ${returnMeal.name}.` : "Choose who should rejoin the main meal.";
     $("#split-member-list").innerHTML = sourceMembers.map(member => `<button type="button" class="split-member-choice" data-split-member="${escapeHtml(member.id)}">${memberAvatar(member)}<span><strong>${escapeHtml(member.name)}</strong><small>${member.role === "child" ? "Child" : "Adult"}</small></span><span class="member-check">✓</span></button>`).join("");
   } else if (splitReturnMode === "notEating") {
     const alreadyNotEating = new Set(assignments.filter(entry => entry.mealId === NOT_EATING).flatMap(assignmentMemberIds));
@@ -3236,7 +3281,7 @@ function continueSplitMeal() {
     const week = getWeek();
     const assignments = getSlotAssignments(week, splitSlotType, splitDayIndex);
     const now = new Date().toISOString();
-    week.slots[splitSlotType][splitDayIndex] = rejoinNotEatingMembers(assignments, splitAssignmentId, pendingSplitMemberIds, now);
+    week.slots[splitSlotType][splitDayIndex] = rejoinMainMealMembers(assignments, splitAssignmentId, pendingSplitMemberIds, now);
     touchWeekField(week, splitSlotType, splitDayIndex, now);
     syncLegacyWeekSlots(week);
     saveData({ immediateCloud: true });
@@ -4587,7 +4632,6 @@ function bindEvents() {
   $("#data-sharing").addEventListener("click", openDataSharing);
   $("#week-settings").addEventListener("click", openWeekSettings);
   $("#settings-form").addEventListener("submit", saveWeekSettings);
-  $("#remove-people").addEventListener("click", openRemovePeopleFromMeal);
   $("#not-eating").addEventListener("click", () => {
     closeOverlay("meal-picker-overlay");
     openSplitMembers(pickerDayIndex, pickerSlotType, null, "notEating", []);
@@ -4740,7 +4784,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.48", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.49", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {
