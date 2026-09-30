@@ -1408,29 +1408,51 @@ body.modal-open { overflow: hidden; }
 /* v1.0.46 — match iOS status/overscroll colour and lower bottom navigation slightly */
 
 
-/* v1.0.47 — meal sides and per-person Not eating state */
-.side-list { display:grid; gap:7px; }
-.side-row { padding:8px; border:1.5px solid var(--gh-line); border-radius:16px; background:rgba(239,230,223,.58); }
-.side-row-main { display:grid; grid-template-columns:minmax(0,1fr) auto 34px; gap:6px; align-items:center; }
-.side-row .text-input { min-height:39px; padding:7px 8px; border-radius:12px; background:var(--gh-surface); font-size:14px; }
-.side-shop-toggle { min-height:36px; padding:0 7px; border:1.5px solid var(--gh-line); border-radius:11px; background:var(--gh-surface); display:flex; align-items:center; gap:5px; color:var(--gh-muted); font-size:10px; font-weight:800; white-space:nowrap; }
-.side-shop-toggle input { width:16px; height:16px; margin:0; accent-color:var(--shop); }
-.remove-side { width:34px; height:36px; border:0; border-radius:11px; background:transparent; color:var(--danger); font-size:20px; }
-.side-shop-fields { margin-top:6px; display:grid; grid-template-columns:64px 70px minmax(0,1fr); gap:5px; }
-.side-row:not(.include-shop) .side-shop-fields { display:none; }
-.side-shop-fields .select-input { min-width:0; }
-.meal-sides-preview { color:#7a655d !important; }
-.meal-method-sides { margin:0; padding-left:20px; display:grid; gap:5px; font-size:13px; line-height:1.4; }
-.recipe-side-list { margin:0; padding-left:20px; display:grid; gap:5px; }
+/* v1.0.48 — planner sides, ingredient title case and reversible Not eating */
 .not-eating-inline { display:flex; align-items:center; margin-top:2px; }
 .not-eating-inline .audience { justify-content:flex-start; }
 .split-assignment-row.not-eating-row strong { color:var(--gh-muted); font-weight:760; }
-.picker-clear-actions .picker-not-eating-button { min-height:44px; margin-top:0; }
-.picker-clear-actions .picker-not-eating-button[hidden] { display:none; }
+.picker-clear-actions .picker-not-eating-button,
+.picker-clear-actions .picker-rejoin-button { min-height:44px; margin-top:0; }
+.picker-clear-actions .picker-not-eating-button[hidden],
+.picker-clear-actions .picker-rejoin-button[hidden] { display:none; }
 #meal-picker-overlay .picker-clear-actions { grid-template-columns:repeat(2,minmax(0,1fr)); }
 #meal-picker-overlay .picker-clear-actions > button:only-child { grid-column:1 / -1; }
-@media (max-width:380px) {
-  .side-row-main { grid-template-columns:minmax(0,1fr) auto 32px; gap:4px; }
-  .side-shop-toggle { padding:0 5px; }
-  .side-shop-fields { grid-template-columns:58px 62px minmax(0,1fr); gap:4px; }
+
+.split-assignment-block { border-top:1px solid rgba(37,43,51,.09); }
+.split-assignment-block .split-assignment-row { border-top:0; }
+.planned-sides-row {
+  min-width:0;
+  padding:1px 6px 5px 7px;
+  display:flex;
+  align-items:flex-start;
+  gap:6px;
 }
+.meal-period.single .planned-sides-row { grid-column:1 / -1; }
+.planned-sides-label {
+  flex:0 0 auto;
+  padding-top:5px;
+  color:var(--gh-muted);
+  font-size:8px;
+  font-weight:850;
+  letter-spacing:.07em;
+  text-transform:uppercase;
+}
+.planned-side-chips { min-width:0; display:flex; flex-wrap:wrap; gap:4px; }
+.planned-side-chip,
+.planned-side-add {
+  min-height:25px;
+  padding:3px 7px;
+  border:1px solid rgba(37,43,51,.12);
+  border-radius:9px;
+  background:rgba(247,241,235,.66);
+  color:var(--gh-muted);
+  font-size:9px;
+  font-weight:780;
+  line-height:1.1;
+}
+.planned-side-chip { display:inline-flex; align-items:center; gap:5px; color:var(--gh-ink); }
+.planned-side-chip b { color:var(--gh-muted); font-size:12px; font-weight:760; line-height:1; }
+.planned-side-add { background:transparent; }
+.planned-side-chip:active,
+.planned-side-add:active { background:rgba(37,43,51,.05); }
