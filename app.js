@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.50";
+const APP_VERSION = "1.0.51";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -2066,6 +2066,68 @@ function recipeSectionText(line) {
   return /^(recipe|ingredients?|method|directions|instructions|preparation|nutrition|notes?|video)\b/i.test(text) ? text : "";
 }
 
+function markdownBulletText(line) {
+  const raw = String(line || "").trim();
+  if (!/^[-*+]\s+/.test(raw)) return "";
+  return cleanMarkdownRecipeText(raw.replace(/^[-*+]\s+/, ""));
+}
+
+function looksLikeQuantityIngredientText(value) {
+  const text = normaliseName(value);
+  if (!text) return false;
+  return /^(?:\d+(?:[.,]\d+)?(?:\s*[-–]\s*\d+(?:[.,]\d+)?)?|[¼½¾⅓⅔⅛⅜⅝⅞])(?:\s|$)/.test(text);
+}
+
+function findQuantityIngredientCluster(lines, fromIndex = 0) {
+  let best = [];
+  let current = [];
+  const commit = () => {
+    if (current.length > best.length) best = current.slice();
+    current = [];
+  };
+
+  for (let i = Math.max(0, fromIndex); i < lines.length; i += 1) {
+    const section = recipeSectionText(lines[i]);
+    if (section && /^(comments|nutrition|notes?|video|rate this recipe)\b/i.test(section)) {
+      commit();
+      if (best.length >= 3) break;
+      continue;
+    }
+
+    const text = markdownBulletText(lines[i]);
+    if (text && looksLikeQuantityIngredientText(text)) {
+      if (current.length && i - current[current.length - 1].index > 8) commit();
+      current.push({ index: i, text });
+      continue;
+    }
+
+    if (current.length && i - current[current.length - 1].index > 8) commit();
+  }
+  commit();
+  return best.length >= 3 ? best : [];
+}
+
+function fallbackMethodBullets(lines, afterIndex) {
+  const method = [];
+  let started = false;
+  for (let i = Math.max(0, afterIndex + 1); i < lines.length; i += 1) {
+    const section = recipeSectionText(lines[i]);
+    const heading = markdownHeadingText(lines[i]);
+    if (section && /^(notes?|nutrition|comments|rate this recipe|video)\b/i.test(section)) break;
+    if (started && heading && !/^(step\s*\d+|instructions?|method|directions|preparation)\b/i.test(heading)) break;
+
+    const text = markdownBulletText(lines[i]);
+    if (!text || looksLikeQuantityIngredientText(text)) continue;
+    if (/^(print recipe|pin recipe|bookmark|saved!?|1x\s*2x\s*3x)$/i.test(text)) continue;
+    if (text.length < 20) continue;
+
+    started = true;
+    method.push(text);
+    if (method.length >= 20) break;
+  }
+  return method;
+}
+
 function recipeFromMarkdown(markdown, sourceUrl) {
   const lines = String(markdown || "").replace(/\r/g, "").split("\n");
   const headingAt = index => markdownHeadingText(lines[index]);
@@ -2078,13 +2140,22 @@ function recipeFromMarkdown(markdown, sourceUrl) {
   if (start < 0) {
     start = lines.findIndex((line, index) => /^ingredients?\b/i.test(sectionAt(index)));
   }
-  if (start < 0) return null;
+
+  // Some Reader/WordPress combinations flatten the recipe card and drop the
+  // literal Ingredients heading while leaving its quantity-led bullet rows.
+  // In that case use the strongest cluster of quantity-led bullets beneath
+  // the Recipe section rather than rejecting an otherwise usable response.
+  const fallbackCluster = start < 0 && recipeHeadingIndex >= 0
+    ? findQuantityIngredientCluster(lines, recipeHeadingIndex + 1)
+    : [];
+  if (start < 0 && !fallbackCluster.length) return null;
+  const ingredientAnchor = start >= 0 ? start : fallbackCluster[0].index;
 
   let name = "";
-  if (recipeHeadingIndex >= 0 && recipeHeadingIndex < start) {
-    for (let i = start - 1; i > recipeHeadingIndex; i -= 1) {
+  if (recipeHeadingIndex >= 0 && recipeHeadingIndex < ingredientAnchor) {
+    for (let i = ingredientAnchor - 1; i > recipeHeadingIndex; i -= 1) {
       const heading = headingAt(i);
-      if (!heading || /^(ingredients?|recipe|for the\b)/i.test(heading)) continue;
+      if (!heading || /^(ingredients?|recipe|for the\b|instructions?|method|directions|preparation)\b/i.test(heading)) continue;
       name = heading;
       break;
     }
@@ -2093,14 +2164,14 @@ function recipeFromMarkdown(markdown, sourceUrl) {
   // Recipe heading: the page H1 is a safer title than a nearby editorial
   // subheading such as “What you need”.
   if (!name) {
-    for (let i = start - 1; i >= 0; i -= 1) {
+    for (let i = ingredientAnchor - 1; i >= 0; i -= 1) {
       if (!/^#\s+\S/.test(String(lines[i] || "").trim())) continue;
       const heading = headingAt(i);
       if (heading && !/^recipe\b/i.test(heading)) { name = heading; break; }
     }
   }
   if (!name) {
-    let titleLine = lines.find(line => /^title\s*:/i.test(line.trim())) || "";
+    const titleLine = lines.find(line => /^title\s*:/i.test(line.trim())) || "";
     name = cleanMarkdownRecipeText(titleLine.replace(/^title\s*:\s*/i, ""));
   }
   name = titleStyleName(name.replace(/\s+[|–—-]\s+[^|–—-]+$/, "").trim() || "Imported Recipe");
@@ -2108,39 +2179,46 @@ function recipeFromMarkdown(markdown, sourceUrl) {
   const servesLine = lines.find(line => /^\s*(serves|servings|makes|yield)\b/i.test(cleanMarkdownRecipeText(line)));
   const serves = servesLine ? cleanMarkdownRecipeText(servesLine) : "";
   const endHeadings = /^(nutrition|method|directions|instructions|preparation|comments|notes|rate this recipe|video)\b/i;
-  const collected = [];
-  let current = "";
-  const flush = () => { if (current) collected.push(cleanMarkdownRecipeText(current)); current = ""; };
-  for (let i = start + 1; i < lines.length; i += 1) {
-    const raw = lines[i].trim();
-    const section = sectionAt(i);
-    const heading = headingAt(i);
-    if (section && endHeadings.test(section)) break;
-    if (heading || (section && !/^ingredients?\b/i.test(section))) {
-      flush();
-      continue;
-    }
-    if (!raw) continue;
-    const isBullet = /^[-*+]\s+/.test(raw);
-    const hasRecipeInput = /\[(?:Input|Checkbox|Button:[^\]]*)\]/i.test(raw);
-    const text = cleanMarkdownRecipeText(raw.replace(/^[-*+]\s+/, ""));
-    if (!text || /^(units:?|metric\s*us|us conversions|loading\.{0,3}|ad|1x\s*2x\s*3x)$/i.test(text) || /^not all measurements/i.test(text) || /^cook mode\b/i.test(text)) continue;
-    const looksLikeIngredient = isBullet || hasRecipeInput || /^(?:\d+(?:[.,]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])\b/.test(text);
-    if (looksLikeIngredient) {
-      flush();
-      current = text;
-    } else if (current && text.length < 120 && !/^(keep the screen|print|save recipe)/i.test(text)) {
-      current += ` ${text}`;
-    }
-  }
-  flush();
-  const ingredients = collected.filter(line => line && !/^nutrition\b/i.test(line));
+  let ingredients = [];
 
+  if (fallbackCluster.length) {
+    ingredients = fallbackCluster.map(item => item.text).filter(Boolean);
+  } else {
+    const collected = [];
+    let current = "";
+    const flush = () => { if (current) collected.push(cleanMarkdownRecipeText(current)); current = ""; };
+    for (let i = start + 1; i < lines.length; i += 1) {
+      const raw = lines[i].trim();
+      const section = sectionAt(i);
+      const heading = headingAt(i);
+      if (section && endHeadings.test(section)) break;
+      if (heading || (section && !/^ingredients?\b/i.test(section))) {
+        flush();
+        continue;
+      }
+      if (!raw) continue;
+      const isBullet = /^[-*+]\s+/.test(raw);
+      const hasRecipeInput = /\[(?:Input|Checkbox|Button:[^\]]*)\]/i.test(raw);
+      const text = cleanMarkdownRecipeText(raw.replace(/^[-*+]\s+/, ""));
+      if (!text || /^(units:?|metric\s*us|us conversions|loading\.{0,3}|ad|1x\s*2x\s*3x)$/i.test(text) || /^not all measurements/i.test(text) || /^cook mode\b/i.test(text)) continue;
+      const looksLikeIngredient = isBullet || hasRecipeInput || /^(?:\d+(?:[.,]\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])\b/.test(text);
+      if (looksLikeIngredient) {
+        flush();
+        current = text;
+      } else if (current && text.length < 120 && !/^(keep the screen|print|save recipe)/i.test(text)) {
+        current += ` ${text}`;
+      }
+    }
+    flush();
+    ingredients = collected.filter(line => line && !/^nutrition\b/i.test(line));
+  }
+
+  const methodSearchFrom = fallbackCluster.length ? fallbackCluster[fallbackCluster.length - 1].index : start;
   let methodStart = -1;
-  for (let i = start + 1; i < lines.length; i += 1) {
+  for (let i = methodSearchFrom + 1; i < lines.length; i += 1) {
     if (/^(method|directions|instructions|preparation)\b/i.test(sectionAt(i))) { methodStart = i; break; }
   }
-  const method = [];
+  let method = [];
   if (methodStart >= 0) {
     for (let i = methodStart + 1; i < lines.length; i += 1) {
       const raw = lines[i].trim();
@@ -2152,7 +2230,10 @@ function recipeFromMarkdown(markdown, sourceUrl) {
       const text = cleanMarkdownRecipeText(raw.replace(/^\d+[.)]\s+/, "").replace(/^[-*+]\s+/, ""));
       if (text && !/^(notes?|nutrition|rate this recipe|video)\b/i.test(text)) method.push(text);
     }
+  } else if (fallbackCluster.length) {
+    method = fallbackMethodBullets(lines, fallbackCluster[fallbackCluster.length - 1].index);
   }
+
   return ingredients.length ? { name, ingredients, method: normaliseMethod(method), serves, sourceUrl } : null;
 }
 
@@ -2241,7 +2322,10 @@ function markdownRecipeDiagnostics(text) {
   const headings = lines.map(markdownHeadingText).filter(Boolean);
   const inputRows = lines.filter(line => /\[(?:Input|Checkbox)\]/i.test(line) && /(?:\d|¼|½|¾|⅓|⅔|⅛|⅜|⅝|⅞)/.test(line));
   const bullets = lines.filter(line => /^\s*[-*+]\s+/.test(line));
-  return `recipe heading ${headings.some(value => /^recipe\b/i.test(value)) ? "yes" : "no"}; ingredients heading ${headings.some(value => /^ingredients?\b/i.test(value)) ? "yes" : "no"}; input rows ${inputRows.length}; bullets ${bullets.length}`;
+  const recipeIndex = lines.findIndex((line, index) => /^recipe\b/i.test(recipeSectionText(lines[index])));
+  const quantityBullets = lines.filter(line => looksLikeQuantityIngredientText(markdownBulletText(line)));
+  const quantityCluster = findQuantityIngredientCluster(lines, recipeIndex >= 0 ? recipeIndex + 1 : 0);
+  return `recipe heading ${headings.some(value => /^recipe\b/i.test(value)) ? "yes" : "no"}; ingredients heading ${headings.some(value => /^ingredients?\b/i.test(value)) ? "yes" : "no"}; instructions heading ${headings.some(value => /^(instructions?|method|directions|preparation)\b/i.test(value)) ? "yes" : "no"}; input rows ${inputRows.length}; bullets ${bullets.length}; quantity bullets ${quantityBullets.length}; ingredient cluster ${quantityCluster.length}`;
 }
 
 function htmlRecipeDiagnostics(text) {
@@ -4866,7 +4950,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.50", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.51", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {

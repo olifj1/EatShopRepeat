@@ -1,8 +1,10 @@
-# MealPlanner v1.0.50
+# MealPlanner v1.0.51
 
-Diagnostic release for recipe URL importing.
+Recipe URL importer parser fix.
 
-- Failed website imports now show an **Import details** panel.
-- The panel reports the direct-page, Reader, and CORS-proxy stages separately, including HTTP status, response size, recipe markers found, and parser result.
-- A **Copy details** button makes it easy to send the device-side trace back for debugging.
-- No meal-planning, Firebase, recipe-library, shopping, saved-week/day, sides, or household behaviour was intentionally changed.
+- Uses the v1.0.50 device diagnostics to handle Reader responses where a WordPress recipe card has been flattened and the literal **Ingredients** heading is missing.
+- When a **Recipe** section is present, the importer can now identify a compact cluster of quantity-led ingredient bullets instead of rejecting the page.
+- If the flattened card also loses its Instructions heading, subsequent recipe-style bullet steps can be recovered as the cooking method.
+- Import diagnostics now also report Instructions headings, quantity-led bullet count, and detected ingredient-cluster size.
+- Existing heading-based recipe importing remains the primary path and is unchanged for pages that already import correctly.
+- No planner, Firebase, shopping, sides, saved-week/day, recipe-library, or household behaviour was intentionally changed.
