@@ -1,9 +1,3 @@
-# MealPlanner v1.0.52
+# MealPlanner v1.0.53
 
-Layout fix for the Meals list.
-
-- Long meal names now wrap to a maximum of two lines and then truncate cleanly.
-- Meal cards are constrained to the phone viewport and can no longer widen the whole list.
-- Ingredient previews remain clipped inside each card.
-- Cook/Edit controls stay visible at the right edge of every meal card.
-- No Firebase sync or recipe-import behaviour changed in this release.
+Adds a View / Edit toggle to the Week planner. Edit preserves the existing planning controls. View presents a quieter summary with planned dinners/lunches, sides and household initials while hiding add/change controls and per-day Save, Load and Clear actions. The selected display mode is remembered locally on the device and does not alter or sync planner data.

@@ -11,7 +11,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png?v=icon2">
-  <link rel="stylesheet" href="./style.css?v=1.0.52">
+  <link rel="stylesheet" href="./style.css?v=1.0.53">
   <title>Meal Planner</title>
 </head>
 <body>
@@ -43,6 +43,13 @@
             </button>
             <button class="mini-icon-button" id="prev-week" type="button" aria-label="Previous week">‹</button>
             <button class="mini-icon-button" id="next-week" type="button" aria-label="Next week">›</button>
+          </div>
+        </div>
+
+        <div class="week-mode-bar">
+          <div class="week-mode-toggle" role="group" aria-label="Week display mode">
+            <button class="week-mode-button" type="button" data-week-display-mode="view" aria-pressed="false">View</button>
+            <button class="week-mode-button active" type="button" data-week-display-mode="edit" aria-pressed="true">Edit</button>
           </div>
         </div>
 
@@ -822,7 +829,7 @@
   <datalist id="ingredient-known-items"></datalist>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="./app.js?v=1.0.52"></script>
-  <script type="module" src="./firebase-sync.js?v=1.0.52"></script>
+  <script src="./app.js?v=1.0.53"></script>
+  <script type="module" src="./firebase-sync.js?v=1.0.53"></script>
 </body>
 </html>

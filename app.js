@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.0.52";
+const APP_VERSION = "1.0.53";
 const STORAGE_KEY = "mealPlannerData";
 const CATEGORIES = [
   "Fruit & veg",
@@ -24,6 +24,7 @@ const DEFAULT_MEAL_TAGS = ["Kids", "Adults", "Sunday", "Quick", "Lunch", "Vegeta
 const RECIPE_LIBRARY_URL = "./recipe-library.json";
 const LIBRARY_ADMIN_ENABLED = true;
 const LIBRARY_ADMIN_OVERRIDE_KEY = "mealPlannerLibraryAdminOverrideV1";
+const WEEK_DISPLAY_MODE_KEY = "mealPlannerWeekDisplayModeV1";
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => Array.from(document.querySelectorAll(selector));
@@ -634,8 +635,21 @@ function loadData() {
   }
 }
 
+function loadWeekDisplayMode() {
+  try {
+    return localStorage.getItem(WEEK_DISPLAY_MODE_KEY) === "view" ? "view" : "edit";
+  } catch (_) {
+    return "edit";
+  }
+}
+
+function storeWeekDisplayMode(mode) {
+  try { localStorage.setItem(WEEK_DISPLAY_MODE_KEY, mode); } catch (_) {}
+}
+
 let data = loadData();
 let selectedWeekStart = startOfWeek(new Date(), data.settings.weekStartDay);
+let weekDisplayMode = loadWeekDisplayMode();
 let pickerDayIndex = null;
 let pickerSlotType = "dinner";
 let pickerAssignmentId = null;
@@ -876,14 +890,42 @@ function assignmentSideMealIds(assignment) {
   return cleanSideMealIds(assignment?.sideMealIds, assignment?.mealId).filter(id => !!findMeal(id));
 }
 
-function plannedSidesMarkup(assignment, slotType, dayIndex) {
+function plannedSidesMarkup(assignment, slotType, dayIndex, editable = true) {
   if (!assignment || assignment.mealId === NO_MEAL || assignment.mealId === NOT_EATING || !findMeal(assignment.mealId)) return "";
   const sides = assignmentSideMealIds(assignment).map(id => findMeal(id)).filter(Boolean);
+  if (!editable) {
+    if (!sides.length) return "";
+    const chips = sides.map(side => `<span class="planned-side-chip view-side-chip"><span>${escapeHtml(side.name)}</span></span>`).join("");
+    return `<div class="planned-sides-row view-sides-row"><span class="planned-sides-label">${sides.length === 1 ? "Side" : "Sides"}</span><div class="planned-side-chips">${chips}</div></div>`;
+  }
   const chips = sides.map(side => `<button class="planned-side-chip" type="button" data-remove-side-meal="${escapeHtml(side.id)}" data-side-day="${dayIndex}" data-side-slot="${slotType}" data-side-assignment="${escapeHtml(assignment.id)}" aria-label="Remove ${escapeHtml(side.name)} side"><span>${escapeHtml(side.name)}</span><b aria-hidden="true">×</b></button>`).join("");
   return `<div class="planned-sides-row"><span class="planned-sides-label">Sides</span><div class="planned-side-chips">${chips}<button class="planned-side-add" type="button" data-add-side-meal="${slotType}" data-side-day="${dayIndex}" data-side-assignment="${escapeHtml(assignment.id)}">＋ Add side</button></div></div>`;
 }
 
-function mealPeriodMarkup(slotType, dayIndex, assignments) {
+function mealPeriodSummaryMarkup(slotType, dayIndex, assignments) {
+  const label = slotType === "lunch" ? "Lunch" : "Dinner";
+  if (!assignments.length) {
+    if (slotType === "lunch") return "";
+    return `<div class="meal-period week-view-period ${slotType} empty-summary"><div class="week-view-period-heading">${label}</div><div class="week-view-empty">No meal planned</div></div>`;
+  }
+
+  const rows = assignments.map(assignment => {
+    const noMeal = assignment.mealId === NO_MEAL;
+    const notEating = assignment.mealId === NOT_EATING;
+    const meal = noMeal || notEating ? null : findMeal(assignment.mealId);
+    if (!meal && !noMeal && !notEating) return "";
+    const name = meal ? meal.name : noMeal ? "No meal / eating out" : "Not eating";
+    return `<div class="week-view-assignment ${notEating ? "not-eating-summary" : ""}">
+      <div class="week-view-assignment-row"><strong>${escapeHtml(name)}</strong>${audienceAvatarsMarkup(assignment.memberIds)}</div>
+      ${meal ? plannedSidesMarkup(assignment, slotType, dayIndex, false) : ""}
+    </div>`;
+  }).join("");
+
+  return `<div class="meal-period week-view-period ${slotType}"><div class="week-view-period-heading">${label}</div>${rows || `<div class="week-view-empty">No meal planned</div>`}</div>`;
+}
+
+function mealPeriodMarkup(slotType, dayIndex, assignments, editable = true) {
+  if (!editable) return mealPeriodSummaryMarkup(slotType, dayIndex, assignments);
   const label = slotType === "lunch" ? "Lunch" : "Dinner";
   if (!assignments.length) {
     if (slotType === "lunch") return `<button class="add-lunch-button" type="button" data-day-index="${dayIndex}" data-meal-slot="lunch">＋ Lunch</button>`;
@@ -923,27 +965,47 @@ function mealPeriodMarkup(slotType, dayIndex, assignments) {
   </div>`;
 }
 
+function updateWeekDisplayModeUi() {
+  const weekScreen = $("#week-screen");
+  if (weekScreen) weekScreen.classList.toggle("week-view-mode", weekDisplayMode === "view");
+  $$('[data-week-display-mode]').forEach(button => {
+    const active = button.dataset.weekDisplayMode === weekDisplayMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function setWeekDisplayMode(mode) {
+  const next = mode === "view" ? "view" : "edit";
+  if (weekDisplayMode === next) return;
+  weekDisplayMode = next;
+  storeWeekDisplayMode(next);
+  renderWeek();
+}
+
 function renderWeek() {
   const week = getWeek();
   const todayKey = localDateKey(new Date());
+  const editable = weekDisplayMode === "edit";
   $("#week-title").textContent = formatWeekHeading(selectedWeekStart);
   $("#week-range").textContent = formatWeekRange(selectedWeekStart);
+  updateWeekDisplayModeUi();
   $("#week-list").innerHTML = Array.from({ length: 7 }, (_, index) => {
     const date = addDays(selectedWeekStart, index);
     const dinner = getSlotAssignments(week, "dinner", index);
     const lunch = getSlotAssignments(week, "lunch", index);
     const hasPlan = dinner.length > 0 || lunch.length > 0;
-    return `<article class="day-card ${localDateKey(date) === todayKey ? "today" : ""}">
+    return `<article class="day-card ${editable ? "week-edit-card" : "week-view-card"} ${localDateKey(date) === todayKey ? "today" : ""}">
       <div class="day-meta"><strong>${escapeHtml(formatDay(date))}</strong><span>${escapeHtml(formatDateShort(date))}</span></div>
       <div class="day-slots">
-        ${mealPeriodMarkup("dinner", index, dinner)}
-        ${mealPeriodMarkup("lunch", index, lunch)}
+        ${mealPeriodMarkup("dinner", index, dinner, editable)}
+        ${mealPeriodMarkup("lunch", index, lunch, editable)}
       </div>
-      <div class="day-actions" aria-label="${escapeHtml(formatDayLong(date))} actions">
+      ${editable ? `<div class="day-actions" aria-label="${escapeHtml(formatDayLong(date))} actions">
         <button type="button" data-save-day="${index}"${hasPlan ? "" : " disabled"}>Save</button>
         <button type="button" data-load-day="${index}">Load</button>
         <button type="button" data-clear-day-plan="${index}"${hasPlan ? "" : " disabled"}>Clear</button>
-      </div>
+      </div>` : ""}
     </article>`;
   }).join("");
 }
@@ -4685,6 +4747,8 @@ function changeWeek(offset) {
 
 function bindEvents() {
   document.addEventListener("click", event => {
+    const weekModeButton = event.target.closest("[data-week-display-mode]");
+    if (weekModeButton) { setWeekDisplayMode(weekModeButton.dataset.weekDisplayMode); return; }
     const libraryPackButton = event.target.closest("[data-library-pack]");
     if (libraryPackButton) { librarySelectedPackId = libraryPackButton.dataset.libraryPack; renderRecipeLibrary(); return; }
     const libraryRecipeButton = event.target.closest("[data-library-recipe]");
@@ -4950,7 +5014,7 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.52", { scope: "./", updateViaCache: "none" });
+      const registration = await navigator.serviceWorker.register("./sw.js?v=1.0.53", { scope: "./", updateViaCache: "none" });
       await registration.update();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") registration.update(); });
       navigator.serviceWorker.addEventListener("controllerchange", () => {

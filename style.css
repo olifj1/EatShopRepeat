@@ -1480,3 +1480,115 @@ body.modal-open { overflow: hidden; }
 .recipe-import-diagnostics summary { cursor:pointer; color:var(--gh-ink); font-size:11px; font-weight:850; }
 .recipe-import-diagnostics pre { margin:8px 0 0; max-height:170px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--gh-muted); font:10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; -webkit-overflow-scrolling:touch; }
 .recipe-import-copy { width:auto; min-height:36px; margin-top:8px; padding:7px 11px; font-size:11px; }
+
+/* v1.0.53 — Week View / Edit summary toggle */
+.week-mode-bar {
+  min-height: 31px;
+  margin: -5px 1px 8px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+.week-mode-toggle {
+  padding: 2px;
+  border: 1.5px solid var(--gh-line);
+  border-radius: 12px;
+  background: rgba(247,241,235,.58);
+  display: inline-grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 2px;
+}
+.week-mode-button {
+  min-width: 50px;
+  min-height: 27px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--gh-muted);
+  font-size: 10px;
+  font-weight: 820;
+}
+.week-mode-button.active {
+  background: var(--week-soft);
+  color: #5f755a;
+  box-shadow: 0 1px 2px rgba(37,43,51,.08);
+}
+.week-view-card {
+  min-height: 0;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.week-view-card .day-meta { padding-top: 5px; }
+.week-view-card .day-slots { gap: 7px; }
+.week-view-period {
+  min-width: 0;
+  padding: 4px 4px 5px 8px;
+}
+.week-view-period + .week-view-period {
+  padding-top: 9px;
+  border-top: 1px solid rgba(37,43,51,.09);
+}
+.week-view-period-heading {
+  margin-bottom: 4px;
+  color: var(--gh-muted);
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.week-view-assignment {
+  min-width: 0;
+  padding: 3px 0;
+}
+.week-view-assignment + .week-view-assignment {
+  margin-top: 3px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(37,43,51,.08);
+}
+.week-view-assignment-row {
+  min-width: 0;
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.week-view-assignment-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  line-height: 1.18;
+}
+.week-view-assignment-row .audience { justify-content: flex-end; }
+.week-view-assignment.not-eating-summary .week-view-assignment-row strong {
+  color: var(--gh-muted);
+  font-weight: 760;
+}
+.week-view-empty {
+  padding: 5px 0 4px;
+  color: var(--gh-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.week-view-period .view-sides-row {
+  padding: 2px 0 1px;
+  align-items: center;
+}
+.week-view-period .view-sides-row .planned-sides-label { padding-top: 0; }
+.week-view-period .view-side-chip {
+  min-height: 22px;
+  padding: 3px 7px;
+  background: transparent;
+  color: var(--gh-muted);
+  font-size: 9px;
+  cursor: default;
+}
+
+@media (max-width: 380px) {
+  .week-mode-bar { margin-top: -4px; }
+  .week-mode-button { min-width: 46px; padding-inline: 8px; }
+}
